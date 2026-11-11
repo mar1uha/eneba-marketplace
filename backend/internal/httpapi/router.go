@@ -7,10 +7,13 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"eneba-marketplace/backend/internal/homepage"
 )
 
 type API struct {
-	DB *pgxpool.Pool
+	DB       *pgxpool.Pool
+	Homepage *homepage.Service
 }
 
 func NewRouter(api *API, corsOrigins []string) http.Handler {
@@ -25,6 +28,7 @@ func NewRouter(api *API, corsOrigins []string) http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", api.health)
+		r.Get("/homepage", api.homepage)
 	})
 
 	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {

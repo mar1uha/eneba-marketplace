@@ -1,0 +1,16 @@
+.page {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding-block: 80px;
+  text-align: center;
+}
+
+.title {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+}
+
+.text {
+  color: var(--color-text-soft);
+}

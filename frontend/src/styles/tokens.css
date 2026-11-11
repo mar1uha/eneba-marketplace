@@ -1,0 +1,62 @@
+/*
+ * Design tokens sampled from eneba.com computed styles (headless Chrome, Nov 2026).
+ * Components use these variables only; no raw colors or sizes in component CSS.
+ */
+:root {
+  /* Surfaces */
+  --color-bg: #4618ac;
+  --color-bg-deep: #3c1395;
+  --color-surface: #1f0a4d;
+  --color-surface-raised: #351183;
+  --color-accent: #7a4edf;
+  --color-overlay: rgb(0 0 0 / 55%);
+  --color-scrim: rgb(0 0 0 / 35%);
+
+  /* Text */
+  --color-text: #fff;
+  --color-text-soft: rgb(255 255 255 / 85%);
+  --color-text-muted: #b3aac9;
+
+  /* Brand and status */
+  --color-primary: #fad318;
+  --color-primary-hover: #ffe14d;
+  --color-on-primary: #000;
+  --color-positive: #84e916;
+  --color-region: #23c299;
+  --color-highlight: #63e3c2;
+  --color-pink: #e76a8c;
+  --color-danger: #eb002e;
+
+  /* Typography: Metropolis is Eneba's typeface (open source, via @fontsource/metropolis) */
+  --font-sans: 'Metropolis', arial, helvetica, sans-serif;
+  --fs-2xs: 10px;
+  --fs-xs: 12px;
+  --fs-sm: 14px;
+  --fs-md: 15px;
+  --fs-base: 16px;
+  --fs-lg: 19px;
+  --fs-xl: 22px;
+  --fs-2xl: 30px;
+  --fs-3xl: 40px;
+
+  /* Spacing: Eneba uses a 5px grid */
+  --space-1: 5px;
+  --space-2: 10px;
+  --space-3: 15px;
+  --space-4: 20px;
+  --space-6: 30px;
+  --space-8: 40px;
+
+  /* Layout */
+  --container: 1200px;
+  --gutter: 20px;
+  --bleed-max: 1440px;
+  --card-width: 198px;
+  --card-width-mobile: 150px;
+  --hero-height: 320px;
+
+  /* Effects: Eneba uses square corners almost everywhere */
+  --radius: 0;
+  --shadow-pop: 0 3px 9px rgb(0 0 0 / 40%);
+  --transition-fast: 150ms ease;
+}

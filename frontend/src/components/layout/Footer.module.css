@@ -1,0 +1,12 @@
+.footer {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.inner {
+  display: grid;
+  gap: var(--space-1);
+  padding-block: var(--space-6);
+}

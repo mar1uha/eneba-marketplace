@@ -108,3 +108,73 @@ Verified with a second outage run: the page shows "API: degraded · Database: do
 `README.md` now has a "Database outage behavior" section. PostgreSQL is running again, and the dev servers are stopped.
 
 Nothing is committed yet. Should I commit Part 1 now?
+
+---
+
+## Turn 3
+
+### Prompt
+
+Commit and do the next part
+
+### Response
+
+Part 1 committed: `30648f0 Set up Go REST API, React frontend, and PostgreSQL (Part 1)` (30 files; `.env`, binaries, `node_modules` excluded).
+
+Part 2 defaults unless you object:
+- Eneba's tokens (colors, fonts, sizes, radii, spacing) are extracted from live eneba.com with headless Chrome, not guessed. If Eneba's font is licensed, the closest Google Font substitutes.
+- Homepage content is seeded by a SQL migration. No admin UI.
+- Frontend adds React Router (pages) and TanStack Query (API caching, loading and error states).
+- Header holds logo, search box (wired in Part 4), sign-in (Part 3), and cart (Part 5). Layout is responsive for desktop and mobile.
+
+Part 2 scoping questions (asked via question dialog):
+
+1. **Styling approach**
+   - CSS Modules + design tokens (recommended): tokens as CSS variables in one file; components styled with scoped CSS Modules. No runtime, no extra dependency, full control for matching Eneba.
+   - Tailwind CSS v4: tokens mapped into Tailwind's theme. Fast to build, but markup gets class-heavy.
+   - Component library (MUI or Chakra) re-themed: ready-made components, but a heavy bundle and a default look that fights Eneba's.
+2. **Homepage block types** (multi-select): hero banner carousel, product carousels (best sellers, trending, new), category/platform tiles, deal of the day with countdown.
+3. **Pricing on product cards**
+   - Create products, sellers, and offers now (recommended): cards show "from €X" from the cheapest offer. Part 5 extends this instead of reworking it.
+   - Products only, with one display price; offers come in Part 5 with a migration.
+4. **Image source**
+   - Steam CDN cover art (recommended): real game images hotlinked by Steam app ID. Images belong to their publishers; fine for a non-commercial demo.
+   - Self-hosted generated placeholder art: license-safe, looks less like Eneba.
+
+### Answers (question dialog)
+
+- Styling: **CSS Modules + design tokens**
+- Homepage blocks: **Hero banner carousel, Product carousels, Deal of the day + countdown** (category tiles left out)
+- Pricing: **Create sellers and offers now**; cards show the cheapest offer
+- Images: **Steam CDN cover art**
+
+### Response (after answers)
+
+Part 2 built and tested. Not committed yet.
+
+**Design system.** Tokens are measured from live eneba.com, not guessed. A headless Chrome script counted the computed styles of every visible element and captured the product card anatomy. Results: purple `#4618ac` background, `#1f0a4d` card panels, yellow `#fad318` calls to action, green `#84e916` discounts, teal `#23c299` region labels. The font is Metropolis (400/600/800), most text is 12px at weight 800, spacing sits on a 5px grid, corners are square, the container is 1200px, and cards are 198px with 5:7 covers. Metropolis is open source, so the real font ships via `@fontsource/metropolis`. Tokens live in `frontend/src/styles/tokens.css`; components use CSS Modules and tokens only.
+
+**Backend.**
+- Migrations `00002`–`00005`: `sellers`, `products`, `offers`, `homepage_blocks` (JSONB config, `is_active`, `starts_at`/`ends_at` schedule) plus demo seed data: 40 Steam games, 6 sellers, 177 offers, 6 homepage blocks. CHECK constraints guard platforms, regions, block types, prices, slugs, and schedules.
+- `internal/catalog`: product cards are products joined with their cheapest active offer; discount is derived from MSRP.
+- `internal/homepage`: loads visible blocks in position order and resolves each config. Hero slides fill image, link, and price from the linked product. Carousels support `best_selling`, `newest`, `discount`, and `manual`. The deal of the day rotates daily on UTC, ends at UTC midnight or the block's own end, and skips products with no offers. A broken block is logged and skipped; the page still loads.
+- `GET /api/homepage` returns `server_time` plus the blocks.
+
+**Frontend.** React Router 8 + TanStack Query 5. Header (logo, search box, cart, log in), footer, and homepage blocks:
+- Hero carousel: Eneba layout, main banner plus 3 tall side tiles. Autoplay pauses on hover or focus and respects reduced motion. Arrows, dots, swipe.
+- Deal of the day: cover, MSRP struck through, discount, price, live HRS/MIN/SEC countdown on the server clock. Refetches at zero to show the next deal.
+- Product carousels: scroll-snap rows with prev/next buttons that disable at the ends. Bands alternate in color.
+- Loading skeleton, error state with retry, placeholder pages for later parts, and a 404 page. Responsive down to 390px.
+
+**Tests.**
+- Go: 5 tests. Unit: discount math, daily rotation. Integration on a new `eneba_test` DB: block order, card price = cheapest offer, sort order, hidden/scheduled/broken blocks skipped, deal end bound.
+- Vitest: 9 tests. Skeleton then blocks in order, unknown types ignored, card prices, server-clock countdown, expiry refetch, error and retry, hero navigation.
+- Browser (headless Chrome, production build): 12 interaction checks passed. Autoplay, pause on hover, arrows, side tiles, countdown ticking, carousel scroll and disabled ends, search navigation, card links, 404, no failed requests.
+- API stopped: the error state shows, and "Try again" recovers after restart.
+- Editing only DB rows (rename, limit, disable, reorder) changes the API output immediately. Reverted afterwards.
+
+**Fixed during testing.** The logo mark's blend mode washed out its colors; it now uses plain overlap.
+
+**Docs.** README updated: stack table, design-system token table, homepage block config reference, real data model, API example, test coverage, `TEST_DATABASE_URL`.
+
+Should I commit Part 2? After you review it, I will ask the Part 3 authentication questions.

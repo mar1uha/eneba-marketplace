@@ -1,0 +1,141 @@
+.header {
+  background: var(--color-bg);
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 550px) 1fr;
+  grid-template-areas: 'logo search actions';
+  align-items: center;
+  gap: var(--space-6);
+  min-height: 97px;
+}
+
+.logo {
+  grid-area: logo;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.mark {
+  width: 44px;
+  height: 44px;
+}
+
+.mark circle {
+  opacity: 0.9;
+}
+
+.mark circle:nth-child(1) {
+  fill: var(--color-primary);
+}
+
+.mark circle:nth-child(2) {
+  fill: var(--color-pink);
+}
+
+.mark circle:nth-child(3) {
+  fill: var(--color-highlight);
+}
+
+.search {
+  grid-area: search;
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 55px;
+  border: 1px solid var(--color-text);
+}
+
+.search:focus-within {
+  border-color: var(--color-primary);
+}
+
+.searchIcon {
+  position: absolute;
+  left: var(--space-3);
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+
+.search input {
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--space-3) 0 50px;
+  background: transparent;
+  border: 0;
+  font-size: var(--fs-lg);
+  font-weight: 800;
+}
+
+.search input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.search input:focus {
+  outline: none;
+}
+
+.actions {
+  grid-area: actions;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.iconLink {
+  display: inline-flex;
+  padding: var(--space-1);
+}
+
+.account {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+@media (max-width: 767px) {
+  .bar {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      'logo actions'
+      'search search';
+    gap: var(--space-3) var(--space-2);
+    min-height: 0;
+    padding-block: var(--space-3);
+  }
+
+  .logo {
+    font-size: 30px;
+  }
+
+  .mark {
+    width: 34px;
+    height: 34px;
+  }
+
+  .search {
+    height: 44px;
+  }
+
+  .search input {
+    font-size: var(--fs-md);
+  }
+
+  .accountText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}

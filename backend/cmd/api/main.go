@@ -10,8 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	"eneba-marketplace/backend/internal/catalog"
 	"eneba-marketplace/backend/internal/config"
 	"eneba-marketplace/backend/internal/db"
+	"eneba-marketplace/backend/internal/homepage"
 	"eneba-marketplace/backend/internal/httpapi"
 )
 
@@ -41,9 +43,14 @@ func run() error {
 		return err
 	}
 
+	api := &httpapi.API{
+		DB:       pool,
+		Homepage: homepage.NewService(pool, catalog.NewStore(pool)),
+	}
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           httpapi.NewRouter(&httpapi.API{DB: pool}, cfg.CORSOrigins),
+		Handler:           httpapi.NewRouter(api, cfg.CORSOrigins),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
