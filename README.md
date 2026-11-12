@@ -2,7 +2,7 @@
 
 A digital-goods marketplace that copies the look and feel of [eneba.com](https://www.eneba.com). Buyers browse a catalog of games, compare offers from several sellers for the same product, check out with a simulated payment, and receive a digital key.
 
-The project is built in five parts. Each part starts with scoping questions, gets built, and is tested before the next one begins. The goal is a few features done in depth rather than many features done shallowly. The full conversation with the AI assistant is kept in [`chat_history.md`](chat_history.md).
+The project is built in five parts. Each part starts with scoping questions, gets built, and is tested before the next one begins. The goal is a few features done in depth rather than many features done shallowly. The conversation with the AI assistant is kept in two forms: [`chat_history_full.md`](chat_history_full.md) is the full transcript exported from Claude Code's session logs (every prompt and reply, with tool calls in collapsed blocks), and [`chat_history.md`](chat_history.md) is the turn-by-turn summary written during the build.
 
 **Live demo: https://eneba-marketplace-steel.vercel.app** (payments are simulated; use the test card `4242 4242 4242 4242`). The API sleeps when idle on Render's free plan, so the first request after a pause can take up to a minute.
 
@@ -58,7 +58,8 @@ The project is built in five parts. Each part starts with scoping questions, get
 ```
 eneba-marketplace/
 ├── README.md                 Architecture, data model, setup (this file)
-├── chat_history.md           Full log of the AI-assisted build conversation
+├── chat_history_full.md      Full transcript of the AI-assisted build (every prompt and reply)
+├── chat_history.md           Turn-by-turn summary of that conversation, written during the build
 ├── render.yaml               Render blueprint for the API
 ├── e2e/                      Browser journeys (Puppeteer), API fuzzing, and a sign-in burst against a running stack
 ├── backend/                  Go REST API
