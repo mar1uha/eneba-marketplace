@@ -504,3 +504,59 @@ if there is any surplus code, fix it (if 200 lines of code could be 50, rewrite 
 - **Checked live:** health, search, product, and providers (`google: true`) through the site in about 350 ms. The Google start redirect uses `https://eneba-marketplace-steel.vercel.app/api/auth/google/callback`. Browser suites against the live site: store 36/36; purchase journey 26/27.
 - **Bug found live, then fixed test-first:** the header cart badge still said "Cart, 2 items" right after paying until a refetch returned (invisible locally, where the API answers instantly). The fake API can now answer slowly; a regression test reproduced it; the fix removes the paid lines from the cached cart at once. Vitest 56/56.
 - **Left for the user:** add the redirect URI above to the Google OAuth client (and add test users while the consent screen is in Testing mode). Vercel also suggests enabling 2FA.
+
+---
+
+## Turn 11
+
+### Prompt
+
+I saved the key as .txt file
+
+### Response
+
+Found the key at `C:\Users\mariu\.render-api-key\Api_key.txt` (a folder named `.render-api-key`) and validated it against Render's API without printing it. Created the Render service `eneba-api` through the API (Docker, free plan, Frankfurt, health check, auto-deploy, environment variables passed from files). Pointed `frontend/vercel.json` at it, redeployed Vercel, and pushed. Checked the live site and API, ran both browser suites against it, then found and fixed (test-first) the header cart badge lagging behind a payment. Details are under Turn 10, item 4.
+
+---
+
+## Turn 12
+
+### Prompt
+
+Run some stress tests, if there are bugs, fix the code so the bug passes, after that, commit any changes you made. I also did what you asked me. Recheck what you have done and if you did everything you were told to do
+
+### Response
+
+**What the user did, checked:** the Render API key file is deleted (its folder is empty), and Google now accepts the live redirect URI: the sign-in start goes to Google's sign-in page instead of a `redirect_uri_mismatch` error.
+
+**Stress tests and what they found.**
+- Memory under a sign-in burst. Each argon2id hash holds 19 MiB, and nothing limited how many ran at once. A new test hashed 40 passwords at once and grew the heap by 760 MiB (failed). On the real server, 60 simultaneous sign-ins peaked at 919 MB, enough to crash Render's 512 MB free plan. Fix: at most 4 hashes in flight (the rest wait), plus `GOMEMLIMIT=400MiB` in the Docker image. After the fix: the test passes and the real server peaks at 194 MB.
+- Buyers racing for scarce keys (new test): 60 buyers sign up, fill carts, check out, and pay at once for 25 keys, with declines and triple-clicked Pay buttons. Passed: exactly 25 keys sold, none twice, one payment per order, each paid line holding exactly its quantity of keys.
+- Double-click storms (new test): 30 add-to-cart clicks against 5 keys add exactly 5; 15 checkout clicks leave one open order; 20 Pay clicks charge once. Passed.
+- Mixed browsing (new test): 32 clients for 3 seconds, no errors.
+- Load (autocannon, 50 connections, local): about 75,000 requests with 0 errors or timeouts. Product page 6,855 req/s (p99 22 ms); search 266 req/s (p99 1.37 s, queuing on the small connection pool).
+- Live (10 connections, read-only): 75–116 req/s, p99 about 300 ms, 0 errors in about 2,900 requests. No sign-in burst was sent to production while the memory fix wasn't live.
+- A flaky test turned out to be a real bug: header sign-out failed 8 times in 10. Recording the navigation history showed "/" and then a redirect to /login?next=/account: the router renders navigations in a transition, so the account page was still mounted when the user was cleared. Adding `flushSync` first did nothing; React Router warned that it needs the `RouterProvider` from `react-router/dom`. Switching the app and the test helper to it fixed it (0 failures in 10 runs). A regression test checks the full navigation history and fails without the fix.
+
+**Audit against every instruction so far.**
+- Parts 1–5: scoping questions asked before each part; built; tested; committed.
+- The README has the architecture, data model, code structure, and setup.
+- Deployed on free tiers with a public URL; the purchase journey was tested from homepage/search to key delivery, locally and live.
+- Gaps found and fixed:
+  1. `chat_history.md` was missing Turn 11 ("I saved the key as .txt file"); added.
+  2. The README described browser and fuzz scripts that existed only in a temporary scratchpad. They now live in `e2e/` with configurable paths (`npm run shop|store|fuzz|burst`), and all pass from there. Moving them exposed a script bug: it counted Vite's `/src/api/*.ts` module requests as API calls; fixed.
+  3. The README said Render redeploys on every push. Not true: a service added by repository URL does not auto-deploy, and the push of the fixes did not reach the live API. Added `.github/workflows/deploy-api.yml`, which runs the Go tests against PostgreSQL 17 and then calls Render's deploy hook. `/api/health` now reports the live commit, so a deploy can be confirmed.
+  4. The README's Part 3 status still said Google needed credentials; updated.
+- Not in the repo: the Part 3 browser script from an earlier session (lost with that session's scratchpad); the README says so.
+
+Committed: `8dad599 Cap concurrent password hashing, fix the sign-out race, and add stress tests`. The frontend part is deployed to Vercel. The backend part waits for the deploy hook.
+
+**After the user saved the deploy hook ("done"):**
+- Storing the hook as a GitHub repository secret was blocked by Claude Code's permission check (writing to a secret store needs the user's explicit approval), so it was not attempted another way. Instead the hook was called directly, which deployed `8dad599`; `/api/health` showed the new version within a minute.
+- Live verification on the new build:
+  - 40 simultaneous sign-ins sent straight to Render: all answered, no crash; the server stayed up on the same version.
+  - Fuzzers: 0 server errors.
+  - Store suite 36/36; purchase journey 27/27.
+  - The live database was clean afterwards (no test users or orders; all keys back in stock).
+- The workflow's deploy step skips with a visible warning while `RENDER_DEPLOY_HOOK` is unset, so CI stays green and says why nothing was deployed.
+- Left for the user: add the repository secret `RENDER_DEPLOY_HOOK` (GitHub → repository Settings → Secrets and variables → Actions), then delete `C:\Users\mariu\render-deploy-hook.txt`.

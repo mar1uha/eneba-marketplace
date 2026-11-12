@@ -1,0 +1,51 @@
+# Render cannot auto-deploy a repository added by URL, so this workflow tests the API and then calls
+# the service's deploy hook. The hook URL is a repository secret (RENDER_DEPLOY_HOOK).
+name: API tests and deploy
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'render.yaml', '.github/workflows/deploy-api.yml']
+  pull_request:
+    paths: ['backend/**']
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: eneba_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - run: go vet ./...
+      - run: go test ./...
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/eneba_test?sslmode=disable
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the Render deploy
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "::warning::Repository secret RENDER_DEPLOY_HOOK is not set, so the API was tested but not deployed"
+            exit 0
+          fi
+          curl --fail --silent --show-error -X POST "$RENDER_DEPLOY_HOOK" > /dev/null
