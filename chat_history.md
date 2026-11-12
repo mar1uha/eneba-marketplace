@@ -638,4 +638,11 @@ Earlier turns of this log quote the old commit IDs. They map to the new ones lik
 
 Results on the local production build: store 36/36, purchase journey 27/27, accessibility 0 violations, headers all present, no console errors. Go: `go vet` clean; all 6 test packages pass, including the stress tests. Frontend: Vitest 57/57, lint and type-check clean. The local database was clean afterwards.
 
+**Deployed and checked live.** Committed as `12645cd` and pushed. CI ran the Go suite on a fresh PostgreSQL 17 and, now that the user had added the `RENDER_DEPLOY_HOOK` secret, deployed the API by itself for the first time; `/api/health` reported `12645cd` a few minutes later. The website was deployed with `npx vercel deploy --prod`. Against the live site:
+- Security headers: all present (it reported 16 problems before).
+- Store 36/36 and purchase journey 27/27 under the new CSP, with no console errors.
+- Accessibility scan: 0 violations. Fuzzers: 0 server errors.
+- "Continue with Google" still redirects to Google's sign-in page.
+- The live database was clean afterwards: no test users, and every key not in an order is back in stock.
+
 `go test -race` was not added to CI in this turn. The race detector needs a C compiler, which this Windows machine lacks, so its effect on the stress and memory-budget tests could not be checked locally first.
