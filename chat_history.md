@@ -178,3 +178,164 @@ Part 2 built and tested. Not committed yet.
 **Docs.** README updated: stack table, design-system token table, homepage block config reference, real data model, API example, test coverage, `TEST_DATABASE_URL`.
 
 Should I commit Part 2? After you review it, I will ask the Part 3 authentication questions.
+
+---
+
+## Turn 4
+
+### Prompt
+
+commit and do the next part
+
+### Response
+
+Part 2 committed: `9f89b5e Build Eneba-styled homepage from database-driven blocks (Part 2)` (54 files; `.env`, binaries, `node_modules` excluded).
+
+Part 3 defaults unless you object:
+- Passwords hashed with argon2id. Emails stored lowercase and unique.
+- Dedicated `/login` and `/register` pages styled like Eneba. After sign-in, the user returns to the page they came from.
+- Protected frontend routes (`/account`, order history, `/checkout`) redirect to `/login?next=...`. Protected API routes return HTTP 401 without a valid sign-in.
+- Order history gets a protected page and endpoint now; it fills with real orders in Part 5.
+
+Part 3 scoping questions (asked via question dialog):
+
+1. **Session mechanism**
+   - HttpOnly cookie session (recommended): random token in an HttpOnly, Secure, SameSite=Lax cookie; server stores only its hash in a `sessions` table. Sign-out and revocation are instant, and JavaScript can never read the token. In production, Vercel proxies `/api/*` to Render so the cookie stays first-party.
+   - JWT access token + refresh cookie: short-lived JWT in memory plus a refresh token cookie. Stateless checks, but more moving parts and revocation needs extra work.
+   - JWT in localStorage: simplest, but any XSS bug can steal the token.
+2. **Sign-in method**
+   - Email + password (recommended).
+   - Email + password + Google sign-in: needs a Google Cloud OAuth app and secrets.
+   - Passwordless magic link: email is simulated (link printed to the server log).
+3. **Extra account features** (multi-select): login rate limiting, password reset via simulated email, "remember me" long sessions, change password / sign out everywhere.
+4. **Guest cart**
+   - Guests can build a cart; it merges into the account at sign-in (recommended). Checkout still requires sign-in.
+   - Sign-in required before adding to cart.
+
+### Answers (question dialog)
+
+- Sessions: **HttpOnly cookie session** (server-side `sessions` table)
+- Sign-in: **Email + password + Google**
+- Extras: **Password reset (simulated email), Account security page** (rate limiting and "remember me" left out)
+- Guest cart: **Guest cart, merged at sign-in**. The cart itself is built in Part 5; this decision is recorded for it.
+
+### Response (after answers)
+
+Part 3 built and tested. Not committed yet.
+
+**Backend.**
+- Migration `00006_auth.sql`: `users` (lowercase unique email, nullable argon2id `password_hash`, unique `google_sub`, `email_verified_at`), `sessions` (only the SHA-256 of the cookie token is stored), `password_reset_tokens` (hashed, 30-minute expiry, single use).
+- `internal/auth`: register, log in (same error and timing for unknown emails), sliding 14-day sessions, sign out, list and revoke sessions, change password (signs out other devices; Google-only accounts can set a first password), password reset with simulated email (link printed to the server log), Google OAuth with PKCE and state.
+- Google account linking: by Google ID, then by verified email, otherwise create. Security fix found while designing: sign-up does not verify email, so an attacker could pre-register a victim's Gmail address. Linking Google to an unverified account now wipes its password and sessions.
+- HTTP: cookie `HttpOnly`, `SameSite=Lax`, `Secure` with the `__Host-` prefix in production. CSRF defense: Origin allow-list on state-changing requests, plus JSON-only bodies. `requireUser` guards account endpoints and `GET /api/orders`. The `?next=` redirect is restricted to same-site paths.
+- Migrations now take a Postgres advisory lock. Found when two test packages migrated the shared test DB at once; the same race would hit two Render instances booting together.
+
+**Frontend.**
+- Pages: log in, register, forgot password, reset password, account and security (profile, sign-in methods, change/set password, active sessions with "This device", per-device sign-out, "Sign out all other devices"), and orders (empty state until Part 5).
+- `RequireAuth` sends guests to `/login?next=...` and back. `GuestOnly` keeps signed-in users off the auth pages. Any 401 clears the cached user, so a remotely signed-out device returns to log in.
+- Header user menu: avatar, name, account, orders, sign out. "Continue with Google" appears only when the backend has credentials.
+
+**Tests.**
+- Go: all packages pass, 3 runs in a row with packages in parallel. 8 auth integration suites (real Postgres, cookie jars as devices, fake Google server enforcing PKCE) plus password, email, and `safeNext` unit tests.
+- Vitest: 20 tests (11 new auth tests on the real route table with a fake API).
+- Browser end-to-end (headless Chrome, real backend): 20 checks, all passing.
+
+**Bugs found and fixed during testing.**
+- Signing out from `/account` landed on `/login?next=/account` instead of the homepage: the route guard reacted before the navigation. Fix: navigate first, then clear the user. Only the real browser reproduced it; jsdom did not.
+- The account sidebar overflowed with long emails. Fixed with `min-width: 0`.
+
+**Not tested live:** Google sign-in against real Google. It needs OAuth credentials (steps in README, "Setting up Google sign-in"). The full flow is tested against the fake Google server.
+
+**Docs.** README gained an Authentication section (sessions, passwords, CSRF, reset, Google, takeover protection, protected routes, items left out), plus new tables in the data model, 14 new endpoints, new env vars, the same-origin architecture via Vercel rewrite, and test coverage.
+
+Should I commit Part 3? To try Google live, add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `backend/.env` and I will run it with you.
+
+---
+
+## Turn 5
+
+### Prompt
+
+can you find my previous chat?
+
+### Response
+
+Found `chat_history.md` in the repo root. It logs Turns 1–4: Part 1 (stack setup) and Part 2 (homepage) are committed. Part 3 (authentication) is built and tested but not committed. Next step is the Part 4 (store catalog and search) scoping questions.
+
+---
+
+## Turn 6
+
+### Prompt
+
+are you also following all of the steps that I told you to follow?
+
+### Response
+
+Confirmed the workflow from Turn 1: ask scoping questions before each part, build, test and troubleshoot, commit before the next part, and log every turn in `chat_history.md`.
+
+Correction (added in Turn 7): Turns 5 and 6 were not logged when they happened. They were added in Turn 7.
+
+---
+
+## Turn 7
+
+### Prompt
+
+```
+npm error code ENOENT
+npm error syscall open
+npm error path C:\Users\mariu\eneba-marketplace\backend\package.json
+npm error errno -4058
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open 'C:\Users\mariu\eneba-marketplace\backend\package.json'
+```
+
+fix this issue since I'm trying to make the google sign in work
+
+### Response
+
+Cause: `npm` was run in `backend/`, which is the Go API and has no `package.json`. The API starts with `go run ./cmd/api` in `backend/`; `npm run dev` belongs in `frontend/`.
+
+Found and fixed: `backend/.env` listed `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` twice. The first pair was truncated (the secret was 19 characters; real ones are 35). The loader uses the last value, so the complete pair was already in effect, but the truncated pair is now commented out so it cannot be picked up by mistake.
+
+Checked with both servers running:
+- `GET /api/health` returns 200 with the database ok.
+- `GET /api/auth/providers` returns `{"google":true}` through the Vite proxy, so "Continue with Google" shows on the log-in and register pages.
+- `GET /api/auth/google/start` redirects to accounts.google.com with the full client ID, PKCE, and redirect URI `http://localhost:5173/api/auth/google/callback`.
+
+Not tested: the sign-in on Google's side. It needs the user's own Google account in a browser.
+
+---
+
+## Turn 8
+
+### Prompt
+
+Is this part fully tested? If so, move on to the next part
+
+### Response
+
+Re-checked Part 3 before moving on:
+- Go: `go vet` clean, all packages pass. Vitest: 20 tests pass. Lint and production build clean.
+- Real Google sign-in: confirmed from the API log and the database. Four sign-ins through accounts.google.com each ended with `/api/auth/me` returning the account. Sign-out followed by Google sign-in again reused the same account (one Google-linked user, no duplicates).
+
+Bug found in the log and fixed: when the browser cancels a request mid-flight (normal during the full-page Google redirect), the API logged an ERROR and recorded a 500 for `/api/auth/me` and `/api/homepage`. The browser never saw it, but the logs looked like failures. A new `writeServerError` helper records these as 499 ("client closed request") without an error log; real failures still return 500. Two new tests cover it, one against the real test database with a cancelled request.
+
+Cleanup: a Vitest run started in the wrong folder left an empty cache folder in `backend/node_modules`; removed.
+
+Catalog check for Part 4: 36 of 40 products are Steam, all 40 are games, no genres. Too uniform to test filters, so Part 4 expands the seed.
+
+Part 4 defaults unless you object: typo-tolerant search with PostgreSQL `pg_trgm`; filters, sort, search term, and page kept in the URL; numbered pages of 24; seed grows to about 120 products.
+
+Part 4 scoping questions (asked via question dialog):
+1. **Commit Part 3 first?** Commit now (recommended) or later.
+2. **Filters** (multi-select): platform & region, price range, genre (new table), product type.
+3. **Sort options** (multi-select): best selling, price, newest release, biggest discount. Best match is the default when searching.
+4. **Search box behavior**: live suggestions under the header box plus a results page with "Did you mean …?" (recommended), or results page only.
+
+### Answers (question dialog)
+
+- Commit: **Commit Part 3 now**
+- Filters: **Platform & region, Price range, Genre** (product type left out)
+- Sorting: **Best selling, Price** (newest and biggest discount left out); best match when searching
+- Search box: **Live suggestions + results page**, with "Did you mean …?"

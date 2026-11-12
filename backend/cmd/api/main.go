@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"eneba-marketplace/backend/internal/auth"
 	"eneba-marketplace/backend/internal/catalog"
 	"eneba-marketplace/backend/internal/config"
 	"eneba-marketplace/backend/internal/db"
@@ -44,8 +45,14 @@ func run() error {
 	}
 
 	api := &httpapi.API{
-		DB:       pool,
-		Homepage: homepage.NewService(pool, catalog.NewStore(pool)),
+		DB:           pool,
+		Homepage:     homepage.NewService(pool, catalog.NewStore(pool)),
+		Auth:         auth.NewService(pool, auth.LogMailer{}, cfg.AppBaseURL),
+		CookieSecure: cfg.CookieSecure,
+	}
+	if cfg.Google.Enabled() {
+		api.Google = auth.NewGoogleOAuth(cfg.Google.ClientID, cfg.Google.ClientSecret, cfg.Google.RedirectURL, auth.DefaultGoogleEndpoints)
+		slog.Info("google sign-in enabled", "redirect_url", cfg.Google.RedirectURL)
 	}
 
 	srv := &http.Server{

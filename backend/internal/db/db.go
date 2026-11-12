@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 )
 
 //go:embed migrations/*.sql
@@ -38,7 +39,12 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return err
 	}
-	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, migrations)
+	// An advisory lock makes concurrent starters (several instances, parallel test packages) migrate one at a time.
+	locker, err := lock.NewPostgresSessionLocker()
+	if err != nil {
+		return fmt.Errorf("init migration lock: %w", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, migrations, goose.WithSessionLocker(locker))
 	if err != nil {
 		return fmt.Errorf("init migrations: %w", err)
 	}

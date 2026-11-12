@@ -103,7 +103,85 @@
   font-weight: 600;
 }
 
+.accountPlaceholder {
+  width: 120px;
+}
+
+.userMenu {
+  position: relative;
+}
+
+.userButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 220px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+.userButton .accountText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 800;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 10;
+  display: grid;
+  min-width: 220px;
+  padding: var(--space-2) 0;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.menu a,
+.menu button {
+  padding: var(--space-2) var(--space-4);
+  background: none;
+  border: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  text-align: left;
+}
+
+.menu a:hover,
+.menu button:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.menuEmail {
+  padding: var(--space-1) var(--space-4) var(--space-2);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 767px) {
+  .accountPlaceholder {
+    width: 32px;
+  }
+
   .bar {
     grid-template-columns: auto 1fr;
     grid-template-areas:

@@ -26,6 +26,12 @@
   --color-highlight: #63e3c2;
   --color-pink: #e76a8c;
   --color-danger: #eb002e;
+  /* Eneba's pink keeps 5:1 contrast on --color-surface; its red (#eb002e) is too dark for text there. */
+  --color-error: var(--color-pink);
+
+  /* Third-party brand: Google sign-in button guidelines */
+  --color-google-bg: #fff;
+  --color-google-text: #1f1f1f;
 
   /* Typography: Metropolis is Eneba's typeface (open source, via @fontsource/metropolis) */
   --font-sans: 'Metropolis', arial, helvetica, sans-serif;

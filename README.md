@@ -10,7 +10,7 @@ The project is built in five parts. Each part starts with scoping questions, get
 | --- | --- | --- |
 | 1 | Scoping, architecture, setup, "Hello World" checks | Done |
 | 2 | Eneba design system and homepage built from backend-driven blocks | Done |
-| 3 | Authentication (sign up, sign in, protected routes) | Planned |
+| 3 | Authentication: email + password, Google sign-in, password reset, account security, protected routes | Done (Google needs OAuth credentials to try live) |
 | 4 | Store catalog with filters and sorting, typo-tolerant search | Planned |
 | 5 | Product page with seller offers, cart, simulated checkout, key delivery | Planned |
 
@@ -28,6 +28,7 @@ The project is built in five parts. Each part starts with scoping questions, get
 | Database | PostgreSQL 17 | Data is relational (products, offers, orders). The `pg_trgm` extension gives typo-tolerant and partial-name search inside the database for Part 4. `JSONB` holds per-block homepage settings. |
 | DB driver | [pgx](https://github.com/jackc/pgx) v5 with `pgxpool` | Fast native Postgres driver with connection pooling. |
 | Migrations | [goose](https://github.com/pressly/goose) v3, SQL files embedded in the binary | The API applies pending migrations at startup, so a deploy never needs a separate migration step. |
+| Auth | Server-side sessions in an HttpOnly cookie; argon2id passwords; Google via OAuth 2.0 + PKCE (`golang.org/x/oauth2`) | Sessions can be revoked instantly (sign out everywhere, password reset) and JavaScript can never read the token. See [Authentication](#authentication). |
 | Images | Steam's public CDN | Real cover art makes the store look real. Images belong to their publishers; this is acceptable for a non-commercial demo only. |
 | Tests | `go test` against a real test database; Vitest + Testing Library | Integration tests hit real Postgres so SQL is tested as it runs in production. Frontend tests render real components against a mocked `fetch`. |
 | Hosting (planned) | Vercel (frontend), Render (API in Docker), Neon (Postgres) | All three have free tiers. Neon's free Postgres does not expire, unlike Render's free Postgres (30 days). Render free services sleep after about 15 minutes idle, so the first request after a pause is slow. |
@@ -35,22 +36,19 @@ The project is built in five parts. Each part starts with scoping questions, get
 ## Architecture
 
 ```
-                 Development                                      Production (planned)
+            Development                                  Production (planned)
 
-  Browser ──► Vite dev server :5173                    Browser ──► Vercel (static React build)
-                │  serves React app                       │
-                │  proxies /api/* ─────┐                  │  fetch(VITE_API_URL + /api/...)
-                                       ▼                  ▼
-                              Go API :8080          Go API on Render (Docker)
-                              chi router                  │
-                                       │                  │
-                                       ▼                  ▼
-                              PostgreSQL 17         Neon PostgreSQL
-                              (local service)
+  Browser ──► Vite dev server :5173              Browser ──► Vercel (static React build)
+                 │ proxies /api/*                               │ rewrites /api/*
+                 ▼                                              ▼
+           Go API :8080 (chi)                     Go API on Render (Docker)
+                 │                                              │
+                 ▼                                              ▼
+           PostgreSQL 17 (local)                      Neon PostgreSQL
 ```
 
-- **Development:** the Vite dev server proxies every `/api/*` request to the Go API. The browser sees one origin, so CORS does not apply locally.
-- **Production:** the frontend calls the API on its own domain through `VITE_API_URL`. The API only allows origins listed in `CORS_ORIGINS`.
+- **One origin everywhere:** in development the Vite dev server proxies `/api/*` to the Go API; in production a Vercel rewrite does the same. The browser only ever talks to the frontend's origin, so the session cookie is a first-party cookie. This matters because browsers increasingly block third-party cookies, which would break sign-in if the frontend called `*.onrender.com` directly.
+- **CORS** is only a fallback for setups that call the API cross-origin through `VITE_API_URL`. The API allows only origins listed in `CORS_ORIGINS`, and the same list drives the CSRF Origin check.
 - **No hardcoded content:** every piece of page content (banners, product lists, prices, deal timers) comes from the API and the database. The frontend only knows how to render each block type. Changing, reordering, scheduling, or switching off a homepage block is a database update; no frontend deploy is needed.
 
 ## Repository structure
@@ -62,18 +60,22 @@ eneba-marketplace/
 ├── backend/                  Go REST API
 │   ├── cmd/api/main.go       Entry point: config, DB connect, migrate, wiring, HTTP server, graceful shutdown
 │   └── internal/
+│       ├── auth/             Passwords, sessions, password reset, Google OAuth, account linking
 │       ├── catalog/          Product cards: a product joined with its cheapest active offer
 │       ├── config/           Reads environment variables (and backend/.env in development)
 │       ├── db/               Connection pool and migration runner
 │       │   └── migrations/   Numbered goose SQL migrations, embedded into the binary
 │       ├── homepage/         Loads scheduled blocks and turns each block's config into render-ready data
-│       └── httpapi/          Router, middleware, handlers, JSON response helpers
+│       └── httpapi/          Router, middleware (session loading, auth guard, CSRF), handlers, JSON helpers
 └── frontend/                 React + TypeScript single-page app
     └── src/
         ├── api/              Typed fetch client, shared types, one module per API resource
-        ├── components/       Shared UI: layout (header, footer), ProductCard, button styles, icons
+        ├── components/       Shared UI: layout (header with user menu, footer), forms, ProductCard, button styles, icons
         ├── features/home/    HomePage, BlockRenderer, blocks/ (HeroCarousel, DealBlock, ProductCarousel), useCountdown
-        ├── lib/              Price formatting and enum labels
+        ├── features/auth/    Log in, register, forgot/reset password, route guards, auth hooks
+        ├── features/account/ Account layout, security page (profile, password, sessions), orders page
+        ├── lib/              Price, date, and device formatting; enum labels
+        ├── queryClient.ts    TanStack Query setup, including the global "session ended" (401) handler
         ├── pages/            Status pages: placeholders for later parts, 404, route error
         ├── styles/           tokens.css (design tokens) and global.css (reset, container, utilities)
         ├── test/             Vitest setup and fixtures
@@ -85,7 +87,8 @@ eneba-marketplace/
 
 - `cmd/api` holds only wiring. It builds dependencies and starts the server.
 - `internal/httpapi` holds HTTP concerns: routing, status codes, and JSON output. Handlers are methods on an `API` struct that carries its dependencies.
-- Each domain gets its own package under `internal/` with its SQL and business rules: `catalog` and `homepage` so far, `auth` and `orders` later. Handlers stay thin.
+- Each domain gets its own package under `internal/` with its SQL and business rules: `auth`, `catalog`, and `homepage` so far, `orders` later. Handlers stay thin.
+- Validation errors name the form field: `{"error": "Use at least 8 characters.", "field": "password"}`. The frontend shows the message under that field.
 - Every error response has the same shape: `{"error": "message"}`.
 - All prices are integer euro cents, to avoid floating-point rounding.
 
@@ -142,6 +145,64 @@ Behavior rules:
 - **Unknown types:** the frontend renders nothing for a block type it does not know, so the backend can ship a new block type before the frontend does.
 - **Clock skew:** the response includes `server_time`. The deal countdown runs on the server clock, so a wrong clock on the visitor's device does not change the timer. When the timer reaches zero, the frontend refetches and the next deal appears.
 
+## Authentication
+
+### Sessions
+
+- Signing in creates a row in `sessions` and sets a cookie holding a random 128-bit token. The database stores only the token's SHA-256 hash, so a database leak does not expose live sessions.
+- Cookie attributes: `HttpOnly` (JavaScript cannot read it), `SameSite=Lax`, `Path=/`, `Max-Age` 14 days. In production it is also `Secure` and named `__Host-eneba_session`; browsers reject a `__Host-` cookie unless it is Secure and host-only. Local HTTP development uses `COOKIE_SECURE=false`.
+- Sessions slide: each active day pushes expiry 14 days ahead. `last_seen_at` is written at most once an hour, so normal browsing does not write to the database on every request.
+- A new session is created on every sign-in (no session fixation). Signing out deletes the row, so the cookie stops working at once, even if a copy of it exists elsewhere.
+
+### Passwords
+
+- argon2id with the OWASP minimum parameters (19 MiB, 2 passes, 1 thread), sized for a 512 MB free-tier instance. Hashes are stored in PHC format and carry their own parameters, so the cost can be raised later without breaking old hashes.
+- 8 to 128 characters. Emails are trimmed, lowercased, and unique.
+- A failed sign-in returns the same message whether or not the email exists. For an unknown email the server still verifies against a dummy hash, so response timing does not reveal registered emails either. (Registration does say "already exists"; that trade-off favours a clear sign-up form.)
+
+### CSRF protection
+
+Two layers: `SameSite=Lax` stops other sites' form posts from carrying the cookie. The API also rejects any state-changing request whose `Origin` header is not in `CORS_ORIGINS`, and it only accepts JSON bodies, which HTML forms cannot send cross-site.
+
+### Password reset (simulated email)
+
+1. `POST /api/auth/password-reset/request` always answers 202, whether or not the account exists.
+2. For a real account it stores a hashed one-time token (30-minute expiry; any older token is invalidated) and "sends" the link `APP_BASE_URL/reset-password?token=...`. The email is simulated: the link is written to the API server log.
+3. `POST /api/auth/password-reset/confirm` consumes the token in the same statement that checks it, so it cannot be used twice. It then sets the password, signs out every device, and signs the user in.
+
+### Google sign-in
+
+- Authorization-code flow with PKCE (S256) and a random `state`. Both live in a short-lived HttpOnly cookie scoped to `/api/auth/google`, and the callback compares `state` in constant time.
+- The code is exchanged server-to-server with the client secret; the profile comes from Google's userinfo endpoint. Accounts with an unverified Google email are refused.
+- The `?next=` return path is checked on both server and client: only same-site relative paths are allowed (no `//evil.com`, no absolute URLs), so it cannot be used as an open redirect.
+- Account matching: first by Google ID; then by email, which links Google to the existing account; otherwise a new account without a password is created.
+- **Pre-registration takeover protection:** sign-up does not verify email ownership, so someone could register `victim@gmail.com` with a password before the victim arrives. When Google links to an account whose email was never verified, that account's password and sessions are removed, leaving only the Google-proven owner. `email_verified_at` is set by Google sign-in or a completed password reset. An already verified account keeps its password when Google is linked.
+- The button only appears when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set (`GET /api/auth/providers`).
+
+### Account security page
+
+`/account` shows the profile and sign-in methods. Users can change their password there; a Google-only account can set a first password. Changing the password signs out all other devices. The page also lists active sessions (device, IP, signed-in date, last activity, "This device"), with sign-out per device and "Sign out all other devices".
+
+### Protected routes
+
+- **API:** `requireUser` middleware returns 401 for `/api/orders` and the account endpoints. Checkout endpoints join this group in Part 5.
+- **Frontend:** `RequireAuth` wraps `/account`, `/account/orders`, and `/checkout`. Guests are sent to `/login?next=<page>` and come back after signing in. `GuestOnly` sends signed-in users away from the log-in and register pages.
+- **Session ended elsewhere:** any 401 from the API clears the cached user, so a device that was signed out remotely is sent to log in on its next request.
+
+### Decided for Part 5
+
+Guests may build a cart in the browser; it is merged into the account's server-side cart at sign-in. Checkout requires sign-in.
+
+### Deliberately left out
+
+Login rate limiting and "remember me" were offered in scoping and not chosen. Without rate limiting, argon2id's cost is the only brake on password guessing; a per-IP and per-email limiter is the first thing to add before a real launch. Email verification at sign-up is also out of scope, since email is simulated; the takeover protection above covers the main risk this leaves.
+
+### Setting up Google sign-in
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a project and configure the OAuth consent screen (External; add your Google account as a test user).
+2. Create an OAuth client ID of type **Web application**. Add the authorized redirect URI `http://localhost:5173/api/auth/google/callback`, and later the deployed frontend's `/api/auth/google/callback`.
+3. Put the client ID and secret in `backend/.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then restart the API. "Continue with Google" appears on the log-in and register pages.
+
 ## Data model
 
 Money is stored as integer euro cents. Tables marked *planned* arrive in later parts; each part's scoping questions may still change them.
@@ -150,6 +211,8 @@ Money is stored as integer euro cents. Tables marked *planned* arrive in later p
 erDiagram
     products ||--o{ offers : "is sold through"
     sellers ||--o{ offers : lists
+    users ||--o{ sessions : "signed in as"
+    users ||--o{ password_reset_tokens : "resets with"
     users ||--o{ orders : "places (planned)"
     users ||--o{ cart_items : "has (planned)"
     offers ||--o{ digital_keys : "stocks (planned)"
@@ -197,8 +260,26 @@ erDiagram
     }
     users {
         bigint id PK
-        text email UK
-        text password_hash
+        text email UK "lowercase"
+        text display_name
+        text password_hash "argon2id PHC string; null for Google-only"
+        text google_sub UK "Google account ID"
+        timestamptz email_verified_at
+    }
+    sessions {
+        bigint id PK
+        bigint user_id FK
+        bytea token_hash UK "SHA-256 of the cookie token"
+        text user_agent
+        text ip
+        timestamptz last_seen_at
+        timestamptz expires_at
+    }
+    password_reset_tokens {
+        bytea token_hash PK
+        bigint user_id FK
+        timestamptz expires_at
+        timestamptz used_at
     }
     digital_keys {
         bigint id PK
@@ -229,7 +310,7 @@ Key ideas:
 
 - **One product, many offers.** A product (for example "ELDEN RING, Steam, Global") is listed once. Each seller has at most one offer per product (`UNIQUE (product_id, seller_id)`). Cards show the cheapest active offer and the number of offers.
 - **Discounts are derived.** The discount is `(msrp - cheapest price) / msrp`, computed on read, so it can never disagree with the prices.
-- **Database constraints guard the data.** `CHECK` constraints limit platforms, regions, and block types to known values, keep prices positive, require a valid slug format, and reject a schedule whose start is after its end.
+- **Database constraints guard the data.** `CHECK` constraints limit platforms, regions, and block types to known values, keep prices positive, require a valid slug format, and reject a schedule whose start is after its end. Every user must have a password or a Google link, and emails must be lowercase.
 - **Demo seed data lives in migrations** (`00004`, `00005`), so the deployed demo gets the same catalog: 40 games, 6 sellers, and 177 offers (3 to 6 per game). Offer prices are generated deterministically from hashes, at 30–85% of MSRP.
 
 ## API
@@ -240,8 +321,22 @@ All endpoints live under `/api` and return JSON.
 | --- | --- | --- | --- |
 | GET | `/api/health` | Returns `{"status":"ok","db":"ok"}`. Returns HTTP 503 with `"db":"down"` if the database is unreachable. | Part 1 |
 | GET | `/api/homepage` | Returns the visible homepage blocks with resolved data (see [Homepage blocks](#homepage-blocks)). | Part 2 |
+| GET | `/api/auth/me` | `{"user": {...}}` when signed in, `{"user": null}` for guests (always 200). | Part 3 |
+| GET | `/api/auth/providers` | `{"google": true\|false}`: whether Google sign-in is configured. | Part 3 |
+| POST | `/api/auth/register` | `{email, password}` → 201 + session cookie. 409 if the email is taken, 400 with `field` on invalid input. | Part 3 |
+| POST | `/api/auth/login` | `{email, password}` → 200 + session cookie, or 401 "Incorrect email or password." | Part 3 |
+| POST | `/api/auth/logout` | Deletes the session and clears the cookie. 204. | Part 3 |
+| POST | `/api/auth/password-reset/request` | `{email}` → always 202. Sends (logs) a reset link if the account exists. | Part 3 |
+| POST | `/api/auth/password-reset/confirm` | `{token, password}` → 200 + new session; all other sessions are revoked. 400 for a used or expired token. | Part 3 |
+| GET | `/api/auth/google/start?next=` | Redirects to Google with `state` and a PKCE challenge. | Part 3 |
+| GET | `/api/auth/google/callback` | Finishes Google sign-in and redirects to `next`, or to `/login?error=...` on failure. | Part 3 |
+| POST | `/api/auth/password` (auth) | `{current_password, new_password}` → 204; signs out other devices. | Part 3 |
+| GET | `/api/auth/sessions` (auth) | Active sessions, with `current: true` on this device. | Part 3 |
+| DELETE | `/api/auth/sessions/{id}` (auth) | Signs out one of your sessions. 404 for other users' sessions. | Part 3 |
+| POST | `/api/auth/sessions/revoke-others` (auth) | Signs out every other session. `{"revoked": n}`. | Part 3 |
+| GET | `/api/orders` (auth) | `{"orders": []}`; filled by checkout in Part 5. | Part 3 |
 
-Unknown paths return HTTP 404 with `{"error":"not found"}`.
+(auth) = requires a session; returns 401 otherwise. Unknown paths return HTTP 404 with `{"error":"not found"}`.
 
 Example `/api/homepage` response (shortened):
 
@@ -346,6 +441,20 @@ What the tests cover:
 - **Backend unit tests:** discount math and the daily deal rotation, including that a non-UTC clock maps to the same UTC day.
 - **Backend integration tests** (real Postgres): the seeded page has 6 blocks in position order, every card price equals the cheapest active offer, best sellers are sorted by sales, hero slides are fully resolved, and the deal ends within 24 hours. Inactive, not-yet-started, expired, malformed, and empty blocks are hidden. A deal's countdown respects the block's own end time and skips a missing product.
 - **Frontend tests:** skeleton then blocks in API order, unknown block types ignored, card prices and discounts, countdown on the server clock, refetch when the deal expires, error state with a working retry, and hero navigation.
+- **Auth backend tests** (real Postgres, real router, cookie jars as separate devices):
+  - Register, log in, and log out. Wrong-password and unknown-email errors are identical.
+  - Field-level validation, cookie attributes, and cross-site `Origin` and non-JSON requests rejected.
+  - Password reset: no email for unknown accounts, single-use and expiring tokens, all devices signed out.
+  - Password change signs out other devices; session listing and revoking work, and users cannot revoke each other's sessions.
+  - Google sign-in against a fake Google server that enforces PKCE: new, returning, and linked accounts; the pre-registration takeover case; cancelled, forged-state, missing-cookie, and unverified-email failures; and `next` open-redirect attempts.
+- **Auth frontend tests** (the real route table on a memory router):
+  - A guest is sent to log in and returned to the original page.
+  - Server errors appear on the right field or as an alert.
+  - Signed-in users are kept off the log-in page, and `next=//evil.test` is refused.
+  - Header sign-out works, and the Google button appears only when configured.
+  - A 401 from a revoked session sends the user to log in.
+  - Session list and per-device sign-out work; mismatched reset passwords are caught locally.
+- **Browser end-to-end** (headless Chrome, real backend, 20 checks): the full register → second device → sign out others → change password → header sign-out → forgot password → reset link from the server log → reuse refused → old password rejected flow. It also checks the cookie flags as seen by the browser and the mobile layout. This run caught a sign-out redirect race that jsdom tests could not reproduce.
 
 ## Configuration
 
@@ -355,14 +464,18 @@ What the tests cover:
 | `DATABASE_URL` | backend | none (required) | Postgres connection string. |
 | `CORS_ORIGINS` | backend | `http://localhost:5173` | Comma-separated list of allowed browser origins. |
 | `TEST_DATABASE_URL` | backend tests | none | Database for integration tests. Tests skip when it is unset. |
-| `VITE_API_URL` | frontend | empty | API base URL for production builds. Leave empty in development so the Vite proxy is used. |
+| `APP_BASE_URL` | backend | `http://localhost:5173` | Public frontend origin, used in password-reset links and the default Google redirect URL. |
+| `COOKIE_SECURE` | backend | `true` | Set `false` only for local HTTP development. `true` adds `Secure` and the `__Host-` cookie prefix. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | backend | empty | Enable "Continue with Google" when both are set. |
+| `GOOGLE_REDIRECT_URL` | backend | `APP_BASE_URL/api/auth/google/callback` | Must match the redirect URI registered with Google. |
+| `VITE_API_URL` | frontend | empty | Leave empty: the dev proxy and the Vercel rewrite keep the API same-origin. Only set it for a cross-origin API. |
 
 `.env` files are git-ignored. Only the `.env.example` templates are committed.
 
 ## Deployment (planned)
 
 1. **Database:** create a free Neon project and copy its connection string, including `sslmode=require`.
-2. **API:** deploy `backend/` to Render as a Docker web service. Set `DATABASE_URL` and `CORS_ORIGINS` (the Vercel URL). Migrations and seed data run on boot.
-3. **Frontend:** deploy `frontend/` to Vercel. Set `VITE_API_URL` to the Render URL. Add a rewrite of all routes to `index.html` so client-side routing works.
+2. **API:** deploy `backend/` to Render as a Docker web service. Set `DATABASE_URL`, `CORS_ORIGINS` and `APP_BASE_URL` (both the Vercel URL), and optionally the Google variables. Migrations and seed data run on boot; an advisory lock keeps two booting instances from migrating at once.
+3. **Frontend:** deploy `frontend/` to Vercel with two rewrites: `/api/*` to the Render URL (keeps cookies first-party), and everything else to `index.html` (client-side routing).
 
 The Dockerfile and hosting config are added in the deployment step.
