@@ -9,11 +9,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"eneba-marketplace/backend/internal/auth"
+	"eneba-marketplace/backend/internal/catalog"
 	"eneba-marketplace/backend/internal/homepage"
 )
 
 type API struct {
 	DB       *pgxpool.Pool
+	Catalog  *catalog.Store
 	Homepage *homepage.Service
 	Auth     *auth.Service
 	// Google is nil when Google sign-in is not configured.
@@ -37,6 +39,8 @@ func NewRouter(api *API, corsOrigins []string) http.Handler {
 
 		r.Get("/health", api.health)
 		r.Get("/homepage", api.homepage)
+		r.Get("/products", api.listProducts)
+		r.Get("/search/suggestions", api.searchSuggestions)
 
 		r.Route("/auth", func(r chi.Router) {
 			r.Use(api.loadSession)

@@ -339,3 +339,34 @@ Part 4 scoping questions (asked via question dialog):
 - Filters: **Platform & region, Price range, Genre** (product type left out)
 - Sorting: **Best selling, Price** (newest and biggest discount left out); best match when searching
 - Search box: **Live suggestions + results page**, with "Did you mean …?"
+
+### Response (after answers)
+
+Part 3 committed: `5175019 Add email, password, and Google sign-in with protected account pages (Part 3)`.
+
+Part 4 built and tested. Not committed yet.
+
+**Data.**
+- Migration `00007`: `genres` and `product_genres` tables, a `search_normalize()` function, and two product columns: `search_keywords` (aliases such as "gta 5", "bg3") and a generated `search_text` (normalized title + aliases, so it cannot go stale). Enables `fuzzystrmatch`.
+- Migration `00008`: 15 genres, genres and aliases for the existing 40 products, and 115 new products, for 155 in total (140 distinct games across all 8 platforms and 4 regions, 684 offers). Like Eneba, each platform/region edition is its own product. The migration fails if any product is left without a genre.
+- All 140 Steam app IDs were checked against Steam's own names for each title, and all 280 image URLs return 200.
+
+**Search design, and what testing changed.** Normalization makes "Baldur's", "S.T.A.L.K.E.R.", and "Spider-Man" match "baldurs", "stalker", and "spider man". The first attempt used only trigram similarity (`pg_trgm`): it missed "witcer", matched "mario" to "Space Marine", and "ac" hit 14 titles. Replaced with per-word matching: each query word must start a title word, or be within 1 typo (4–6 letters) or 2 typos (7+ letters) of one, keeping the first letter (so "wichter" finds Witcher, not "Street Fighter"). Words of 5+ letters and the whole query may also match with spaces removed ("spiderman", "cyber punk"). Trigram similarity now only ranks results. The first version of the matcher was a per-row SQL function at 21 ms per scan; rewritten as one set-based join, it takes 1.2 ms.
+
+**Backend.** `GET /api/products` returns results, total, facet counts (each group ignores its own selection, so selecting Steam still shows what Xbox would add), the price range before the price filter, the applied sort, and "did you mean" (only when the text itself matches nothing, not when filters hide results). Six queries go in one round trip: about 4 ms when browsing, 18–20 ms with search text. `GET /api/search/suggestions` returns the top 6 matches. Every invalid parameter returns 400 with a message.
+
+**Frontend.**
+- Store page (`/store`): the URL holds all state (Back undoes a filter; links can be shared). Sidebar filters with counts, price inputs with validation, removable filter chips, sort, numbered pages that keep filters, and empty states ("did you mean", "clear filters", a rejected link, retry). Below 900px the filters become a full-screen panel.
+- Header search on every page: live suggestions after 2 characters (200 ms debounce), ARIA combobox keyboard support, Enter opens the highlighted product or the full results.
+- New browse row under the header: All products plus the main platforms.
+
+**Tests.**
+- Go: 10 new tests (16 typo/partial/alias queries, false-match guards, did you mean, filters and facet-count consistency, inclusive price bounds, sort and pagination, products without offers, parameter validation, endpoints). All packages pass 3 runs in a row.
+- Vitest: 38 tests (18 new) for the Store, URL parsing, pagination, and the search box.
+- Browser (headless Chrome, real backend): 36 checks, all passing, including mobile.
+
+**Fixed during testing.** The auth test that looked up the sessions list broke because the header's new browse row added a second list; it now looks inside the sessions section.
+
+**Docs.** README gained a "Store and search" section (URL state, filters and facets, matching rules with examples, ranking, did you mean, performance, items left out), plus updates to the data model, API table, example response, prerequisites, and test coverage.
+
+Should I commit Part 4? After you review it, I will ask the Part 5 questions (product page, cart, checkout).

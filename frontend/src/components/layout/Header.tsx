@@ -1,19 +1,16 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router'
+import { useEffect, useId, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router'
 import type { User } from '../../api/auth'
+import type { Platform } from '../../api/types'
 import { useMe, useSignOut } from '../../features/auth/useAuth'
-import { CartIcon, SearchIcon, UserIcon } from '../icons'
+import { platformLabels } from '../../lib/format'
+import { CartIcon, UserIcon } from '../icons'
+import { SearchBox } from './SearchBox'
 import styles from './Header.module.css'
 
+const BROWSE_PLATFORMS: Platform[] = ['steam', 'xbox', 'playstation', 'nintendo', 'ea_app', 'ubisoft_connect']
+
 export function Header() {
-  const navigate = useNavigate()
-
-  const onSearch = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    const q = String(new FormData(e.currentTarget).get('q') ?? '').trim()
-    if (q) navigate(`/search?q=${encodeURIComponent(q)}`)
-  }
-
   return (
     <header className={styles.header}>
       <div className={`container ${styles.bar}`}>
@@ -26,19 +23,7 @@ export function Header() {
           eneba
         </Link>
 
-        <form role="search" className={styles.search} onSubmit={onSearch}>
-          <label htmlFor="site-search" className="visually-hidden">
-            Search
-          </label>
-          <SearchIcon className={styles.searchIcon} />
-          <input
-            id="site-search"
-            name="q"
-            type="search"
-            placeholder="Search for games, top-ups and more"
-            autoComplete="off"
-          />
-        </form>
+        <SearchBox className={styles.search} />
 
         <nav className={styles.actions} aria-label="Account">
           <Link to="/cart" className={styles.iconLink} aria-label="Cart">
@@ -47,7 +32,32 @@ export function Header() {
           <AccountEntry />
         </nav>
       </div>
+      <BrowseNav />
     </header>
+  )
+}
+
+/** Marks the link matching the Store's platform filter: one platform, or none for "All products". */
+function BrowseNav() {
+  const location = useLocation()
+  const onStore = location.pathname === '/store'
+  const platform = onStore ? (new URLSearchParams(location.search).get('platform') ?? '') : null
+  const links = [
+    { to: '/store', label: 'All products', current: platform === '' },
+    ...BROWSE_PLATFORMS.map((p) => ({ to: `/store?platform=${p}`, label: platformLabels[p], current: platform === p })),
+  ]
+  return (
+    <nav className={styles.browse} aria-label="Browse">
+      <ul className={`container ${styles.browseList}`}>
+        {links.map((link) => (
+          <li key={link.to}>
+            <Link to={link.to} className={styles.browseLink} aria-current={link.current ? 'page' : undefined}>
+              {link.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
   )
 }
 

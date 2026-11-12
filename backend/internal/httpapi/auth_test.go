@@ -117,9 +117,11 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 
 	env := &testEnv{t: t, pool: pool, mailer: &captureMailer{links: map[string]string{}}, google: newFakeGoogle(t)}
+	store := catalog.NewStore(pool)
 	api := &API{
 		DB:       pool,
-		Homepage: homepage.NewService(pool, catalog.NewStore(pool)),
+		Catalog:  store,
+		Homepage: homepage.NewService(pool, store),
 		Auth:     auth.NewService(pool, env.mailer, testOrigin),
 		Google: auth.NewGoogleOAuth("test-client", "test-secret", testOrigin+"/api/auth/google/callback", auth.GoogleEndpoints{
 			AuthURL: env.google.srv.URL + "/auth", TokenURL: env.google.srv.URL + "/token", UserinfoURL: env.google.srv.URL + "/userinfo",

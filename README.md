@@ -11,7 +11,7 @@ The project is built in five parts. Each part starts with scoping questions, get
 | 1 | Scoping, architecture, setup, "Hello World" checks | Done |
 | 2 | Eneba design system and homepage built from backend-driven blocks | Done |
 | 3 | Authentication: email + password, Google sign-in, password reset, account security, protected routes | Done (Google needs OAuth credentials to try live) |
-| 4 | Store catalog with filters and sorting, typo-tolerant search | Planned |
+| 4 | Store catalog with filters, facet counts, sorting, and pages; typo-tolerant search with live suggestions | Done |
 | 5 | Product page with seller offers, cart, simulated checkout, key delivery | Planned |
 
 ## Tech stack and decisions
@@ -25,7 +25,7 @@ The project is built in five parts. Each part starts with scoping questions, get
 | Backend | Go 1.27 | Compiles to one static binary, so the Docker image is small and cold starts on free hosting are fast. The standard library HTTP server is production-grade. |
 | API style | REST (JSON) | One clear endpoint per feature, easy to test with `curl`, and cacheable with normal HTTP rules. GraphQL was considered for the homepage blocks but would add schema and codegen work for little gain at this size. |
 | Router (API) | [chi](https://github.com/go-chi/chi) v5 | Thin layer over `net/http`. Route groups make it simple to put checkout and order history behind auth middleware in Part 3. |
-| Database | PostgreSQL 17 | Data is relational (products, offers, orders). The `pg_trgm` extension gives typo-tolerant and partial-name search inside the database for Part 4. `JSONB` holds per-block homepage settings. |
+| Database | PostgreSQL 17 | Data is relational (products, offers, orders). Search runs inside the database: `fuzzystrmatch` (edit distance) finds typos and `pg_trgm` (trigram similarity) ranks results, so no separate search service is needed. `JSONB` holds per-block homepage settings. |
 | DB driver | [pgx](https://github.com/jackc/pgx) v5 with `pgxpool` | Fast native Postgres driver with connection pooling. |
 | Migrations | [goose](https://github.com/pressly/goose) v3, SQL files embedded in the binary | The API applies pending migrations at startup, so a deploy never needs a separate migration step. |
 | Auth | Server-side sessions in an HttpOnly cookie; argon2id passwords; Google via OAuth 2.0 + PKCE (`golang.org/x/oauth2`) | Sessions can be revoked instantly (sign out everywhere, password reset) and JavaScript can never read the token. See [Authentication](#authentication). |
@@ -61,7 +61,7 @@ eneba-marketplace/
 │   ├── cmd/api/main.go       Entry point: config, DB connect, migrate, wiring, HTTP server, graceful shutdown
 │   └── internal/
 │       ├── auth/             Passwords, sessions, password reset, Google OAuth, account linking
-│       ├── catalog/          Product cards: a product joined with its cheapest active offer
+│       ├── catalog/          Product cards (a product with its cheapest active offer) and Store search
 │       ├── config/           Reads environment variables (and backend/.env in development)
 │       ├── db/               Connection pool and migration runner
 │       │   └── migrations/   Numbered goose SQL migrations, embedded into the binary
@@ -70,8 +70,9 @@ eneba-marketplace/
 └── frontend/                 React + TypeScript single-page app
     └── src/
         ├── api/              Typed fetch client, shared types, one module per API resource
-        ├── components/       Shared UI: layout (header with user menu, footer), forms, ProductCard, button styles, icons
+        ├── components/       Shared UI: layout (header with search box, browse row, and user menu; footer), forms, ProductCard, button styles, icons
         ├── features/home/    HomePage, BlockRenderer, blocks/ (HeroCarousel, DealBlock, ProductCarousel), useCountdown
+        ├── features/store/   StorePage, FilterPanel, Pagination, URL state (storeParams)
         ├── features/auth/    Log in, register, forgot/reset password, route guards, auth hooks
         ├── features/account/ Account layout, security page (profile, password, sessions), orders page
         ├── lib/              Price, date, and device formatting; enum labels
@@ -88,6 +89,7 @@ eneba-marketplace/
 - `cmd/api` holds only wiring. It builds dependencies and starts the server.
 - `internal/httpapi` holds HTTP concerns: routing, status codes, and JSON output. Handlers are methods on an `API` struct that carries its dependencies.
 - Each domain gets its own package under `internal/` with its SQL and business rules: `auth`, `catalog`, and `homepage` so far, `orders` later. Handlers stay thin.
+- When a browser abandons a request (for example by navigating away), the database call fails with a cancelled context. That is logged as status 499, not as a server error.
 - Validation errors name the form field: `{"error": "Use at least 8 characters.", "field": "password"}`. The frontend shows the message under that field.
 - Every error response has the same shape: `{"error": "message"}`.
 - All prices are integer euro cents, to avoid floating-point rounding.
@@ -123,10 +125,10 @@ Rules:
 
 - Component CSS uses tokens only, never raw colors or sizes.
 - Each component has its own CSS Module. `global.css` holds only the reset, `.container`, and `.visually-hidden`.
-- Layouts are responsive. Below 768px the search box moves under the logo, the hero drops its side tiles, and cards shrink to 150px.
+- Layouts are responsive. Below 768px the search box moves under the logo, the hero drops its side tiles, and cards shrink to 150px. Below 900px the Store's filters move into a full-screen panel opened by a Filters button.
 - Motion respects `prefers-reduced-motion`: the hero stops auto-rotating and transitions are switched off.
 
-Deliberate differences from eneba.com: the logo is an original mark (Eneba's logo is a trademark), cashback is not shown (it is not part of the data model), and the category navigation bar was left out during scoping.
+Deliberate differences from eneba.com: the logo is an original mark (Eneba's logo is a trademark), and cashback is not shown (it is not part of the data model). Eneba's category mega-menu is replaced by a slim browse row (All products plus the main platforms) that links into the Store.
 
 ## Homepage blocks
 
@@ -144,6 +146,53 @@ Behavior rules:
 - **Fault isolation:** a block with a broken config, an unknown source, or no purchasable products is left out and logged as a warning. The rest of the page still loads.
 - **Unknown types:** the frontend renders nothing for a block type it does not know, so the backend can ship a new block type before the frontend does.
 - **Clock skew:** the response includes `server_time`. The deal countdown runs on the server clock, so a wrong clock on the visitor's device does not change the timer. When the timer reaches zero, the frontend refetches and the next deal appears.
+
+## Store and search
+
+Scope chosen in Part 4: filters for platform, region, genre, and price; sorting by best selling and price; a search box on every page with live suggestions plus a full results page.
+
+### Store page (`/store`)
+
+- **The URL is the state.** Search text, filters, sort, and page live in the query string: `/store?q=witcher&platform=steam,gog&genre=rpg&max_price=30&sort=price_asc&page=2`. Results can be shared or bookmarked, and the Back button undoes the last filter. Unknown values in a hand-edited URL are dropped instead of breaking the page; prices are euros in the URL and cents in the API.
+- **Filters** combine with OR inside a group (Steam *or* GOG) and AND across groups (Steam *and* RPG *and* under €30). Price applies to the product's cheapest active offer, inclusive at both ends.
+- **Facet counts** next to every option show how many results that option gives. Each group ignores its own selection, so with Steam selected the Xbox count still shows what adding Xbox would give. Options with 0 results are disabled. The price inputs show the price range of the current results, before the price filter.
+- **Sorting:** best match (default while searching), best selling (default otherwise), and price low to high or high to low. Ties fall back to best selling, then product ID, so pages never overlap or skip items.
+- **Pages** hold 24 products. Changing a filter returns to page 1 and keeps the scroll position; page links scroll to the top.
+- **Empty states:** "Did you mean …?" when the search text matches nothing; "No products match these filters" with a Clear button when filters hide every result; a reset link when the server rejects a hand-edited filter; a retry button on network errors.
+- **Header:** a browse row links to All products and the main platforms. Below 900px the filters move into a full-screen panel with a "Show N results" button.
+
+### Search box (every page)
+
+- After 2 characters it shows the top 6 matches (cover, title, platform, region, price) and a "See all N results" row, after a 200 ms pause in typing so each keystroke does not send a request.
+- It follows the ARIA combobox pattern: arrow keys move through suggestions, Enter opens the highlighted product (or the full results in the Store when nothing is highlighted), Escape closes the list, and screen readers hear the result count.
+- On the Store page the box shows the current search text.
+
+### How matching works
+
+Titles and queries are normalized the same way (`search_normalize` in migration `00007`): lowercase, apostrophes, dots, and commas removed, and any other punctuation turned into a space. So "Baldur's Gate" matches "baldurs gate", "S.T.A.L.K.E.R. 2" matches "stalker 2", and "Spider-Man" matches "spider man".
+
+A product matches when **every word of the query** matches some word of its title:
+
+| Rule | Example |
+| --- | --- |
+| The query word starts a title word | `witch` → The **Witch**er 3, `silk` → Hollow Knight: **Silk**song |
+| One typo, for query words of 4–6 letters | `witcer` → Witcher, `eldn ring` → ELDEN RING, `kniht` → Knight |
+| Two typos, for query words of 7+ letters | `cyberpnk` → Cyberpunk, `wichter` → Witcher, `assasins` → Assassin's |
+| Query words of 5+ letters may match across spaces | `spiderman` → Spider-Man, `halflife` → Half-Life |
+| The whole query with spaces removed may match | `cyber punk` → Cyberpunk |
+| Aliases in `search_keywords` | `gta 5` → Grand Theft Auto V, `bg3`, `rdr2`, `fifa` → EA SPORTS FC |
+
+Guards against loose matches: typo matches must keep the first letter (so `wichter` does not match "fighter"), and query words under 4 letters must match the start of a word exactly (so `cod` does not match "god" and `ac` does not match "black"). `mario`, `zelda`, and `frostpunk` correctly return nothing.
+
+**Ranking:** exact title, then title starting with the query, then the query as a phrase inside the title, then typo matches. Ties are broken by trigram similarity (`pg_trgm`), then by sales.
+
+**Did you mean:** when the text matches nothing, even without filters, the API suggests the product matching the most query words (at least half), for example `witcher game` → "The Witcher 3: Wild Hunt" and `red dead redemption 3` → "Red Dead Redemption 2". When the text does match but filters hide the results, no suggestion is made, since the filters are the problem.
+
+**Performance:** the matching runs as one set-based SQL join over title words, about 1 ms for the catalog. A full Store request (results, total, three facet counts, and the price range in one round trip) takes about 4 ms when browsing and 18–20 ms with search text. A first version used a per-row SQL function and took about 21 ms for the match alone. At a much larger catalog, a word index (distinct title words with a trigram index) would replace the scan.
+
+### Left out on purpose
+
+The product-type filter and the newest and biggest-discount sorts were offered in scoping and not chosen. The seed has only games, so a type filter would have nothing to filter.
 
 ## Authentication
 
@@ -211,6 +260,8 @@ Money is stored as integer euro cents. Tables marked *planned* arrive in later p
 erDiagram
     products ||--o{ offers : "is sold through"
     sellers ||--o{ offers : lists
+    products ||--o{ product_genres : "tagged with"
+    genres ||--o{ product_genres : groups
     users ||--o{ sessions : "signed in as"
     users ||--o{ password_reset_tokens : "resets with"
     users ||--o{ orders : "places (planned)"
@@ -234,6 +285,17 @@ erDiagram
         int msrp_cents "list price, basis for discount %"
         date release_date
         int sold_count "drives best sellers"
+        text search_keywords "aliases such as gta 5, bg3"
+        text search_text "generated: normalized title + keywords"
+    }
+    genres {
+        smallint id PK
+        text slug UK
+        text name UK
+    }
+    product_genres {
+        bigint product_id PK, FK
+        smallint genre_id PK, FK
     }
     sellers {
         bigint id PK
@@ -311,7 +373,9 @@ Key ideas:
 - **One product, many offers.** A product (for example "ELDEN RING, Steam, Global") is listed once. Each seller has at most one offer per product (`UNIQUE (product_id, seller_id)`). Cards show the cheapest active offer and the number of offers.
 - **Discounts are derived.** The discount is `(msrp - cheapest price) / msrp`, computed on read, so it can never disagree with the prices.
 - **Database constraints guard the data.** `CHECK` constraints limit platforms, regions, and block types to known values, keep prices positive, require a valid slug format, and reject a schedule whose start is after its end. Every user must have a password or a Google link, and emails must be lowercase.
-- **Demo seed data lives in migrations** (`00004`, `00005`), so the deployed demo gets the same catalog: 40 games, 6 sellers, and 177 offers (3 to 6 per game). Offer prices are generated deterministically from hashes, at 30–85% of MSRP.
+- **One product per platform and region,** like Eneba: "Hades (Steam, Global)" and "Hades (Nintendo, Europe)" are separate products with separate offers. Console and launcher editions reuse the game's Steam artwork.
+- **Search text is a generated column.** `search_text` is computed by Postgres from the title and `search_keywords`, so it can never go stale when a title changes.
+- **Demo seed data lives in migrations** (`00004`, `00005`, `00008`), so the deployed demo gets the same catalog: 155 products (140 distinct games across all 8 platforms and 4 regions), 15 genres, 6 sellers, and 684 offers (1 to 6 per product). Offer prices are generated deterministically from hashes, at 30–85% of MSRP. A check in `00008` fails the migration if any product is left without a genre.
 
 ## API
 
@@ -321,6 +385,8 @@ All endpoints live under `/api` and return JSON.
 | --- | --- | --- | --- |
 | GET | `/api/health` | Returns `{"status":"ok","db":"ok"}`. Returns HTTP 503 with `"db":"down"` if the database is unreachable. | Part 1 |
 | GET | `/api/homepage` | Returns the visible homepage blocks with resolved data (see [Homepage blocks](#homepage-blocks)). | Part 2 |
+| GET | `/api/products` | Store search. Query: `q`, `platform`, `region`, `genre` (comma-separated), `min_price_cents`, `max_price_cents`, `sort` (`relevance`, `best_selling`, `price_asc`, `price_desc`), `page`, `page_size` (max 48). Returns `items`, `total`, `page`, `page_size`, the applied `sort`, `facets`, and `did_you_mean` when nothing matches. 400 for unknown values. | Part 4 |
+| GET | `/api/search/suggestions?q=` | Top 6 matches for the header search box, with `total` and `did_you_mean`; no facets. | Part 4 |
 | GET | `/api/auth/me` | `{"user": {...}}` when signed in, `{"user": null}` for guests (always 200). | Part 3 |
 | GET | `/api/auth/providers` | `{"google": true\|false}`: whether Google sign-in is configured. | Part 3 |
 | POST | `/api/auth/register` | `{email, password}` → 201 + session cookie. 409 if the email is taken, 400 with `field` on invalid input. | Part 3 |
@@ -362,6 +428,24 @@ Example `/api/homepage` response (shortened):
 }
 ```
 
+Example `/api/products?q=witcer&page_size=1` response (shortened; the typo still finds both editions):
+
+```json
+{
+  "items": [
+    { "id": 4, "slug": "the-witcher-3-wild-hunt", "title": "The Witcher 3: Wild Hunt", "platform": "steam", "region": "global",
+      "msrp_cents": 2999, "price_cents": 1709, "discount_percent": 43, "offer_count": 3, "...": "..." }
+  ],
+  "total": 2, "page": 1, "page_size": 1, "sort": "relevance",
+  "facets": {
+    "platforms": [{ "value": "steam", "count": 1 }, { "value": "gog", "count": 1 }, { "value": "xbox", "count": 0 }, "..."],
+    "regions": [{ "value": "global", "count": 2 }, "..."],
+    "genres": [{ "value": "rpg", "label": "RPG", "count": 2 }, { "value": "adventure", "label": "Adventure", "count": 2 }, "..."],
+    "price": { "min_cents": 1589, "max_cents": 1709 }
+  }
+}
+```
+
 ### Database outage behavior
 
 Tested in Part 1 by stopping the local PostgreSQL service:
@@ -377,7 +461,7 @@ Tested in Part 1 by stopping the local PostgreSQL service:
 
 - Go 1.27+
 - Node.js 24+ and npm
-- PostgreSQL 17 with the `pg_trgm` extension (it ships with standard Postgres installs)
+- PostgreSQL 17 with the `pg_trgm` and `fuzzystrmatch` extensions (both ship with standard Postgres installs)
 
 On Windows these can be installed with winget:
 
@@ -401,7 +485,7 @@ ALTER SCHEMA public OWNER TO eneba;
 ALTER SCHEMA public OWNER TO eneba;
 ```
 
-The app does not run as a superuser. `pg_trgm` is a trusted extension, so the database owner can enable it. The first migration does this.
+The app does not run as a superuser. `pg_trgm` and `fuzzystrmatch` are trusted extensions, so the database owner can enable them; migrations `00001` and `00007` do this. Neon allows both.
 
 ### Run the backend
 
@@ -454,6 +538,19 @@ What the tests cover:
   - Header sign-out works, and the Google button appears only when configured.
   - A 401 from a revoked session sends the user to log in.
   - Session list and per-device sign-out work; mismatched reset passwords are caught locally.
+- **Store and search backend tests** (real Postgres, seeded catalog):
+  - 16 queries covering typos, swapped letters, partial words, missing punctuation, extra spaces, aliases, and letter case each return the expected product first.
+  - `mario`, `zelda`, `cod`, and `frostpunk` return nothing; `wichter` does not match "Street Fighter"; `ac` matches only word starts.
+  - "Did you mean" suggests the closest title, stays silent for nonsense, and stays silent when filters (not spelling) hide the results.
+  - Combined filters return only matching products, and every facet count equals the total of actually selecting that option. The price range ignores the price filter, and price bounds are inclusive.
+  - Best selling matches the homepage ordering; price sorts stay ordered across pages with no overlap; a page past the end is empty with the right total; products without an active offer are never listed.
+  - HTTP: parameter parsing (lists, dedupe, trimming) and 400s for every invalid value; both endpoints' response shapes.
+- **Store and search frontend tests:**
+  - URL → API query, with unknown values dropped and a reversed price range swapped.
+  - Checkbox filters restart at page 1; chips and Clear all work; options with 0 results are disabled.
+  - Sorting; price validation; pagination links keep filters; "did you mean"; clearing filters that hide everything; a rejected link; retry after a server error.
+  - Header search: suggestions are debounced (no request for 1 letter), arrow keys and Enter open a product, Enter alone opens the Store, Escape closes, and "did you mean" appears in the dropdown.
+- **Store browser end-to-end** (headless Chrome, real backend, 36 checks): typo suggestions and keyboard selection, search from another page, did you mean, browse links, genre and price filters (counts match facets, scroll position kept), Back undoes a filter, price sort, 7 pages that continue the sort with no overlap, Back between pages, no broken cover images, and the mobile filter panel and suggestions with no horizontal scroll. All 140 Steam app IDs were also checked against Steam's own names for each title.
 - **Browser end-to-end** (headless Chrome, real backend, 20 checks): the full register → second device → sign out others → change password → header sign-out → forgot password → reset link from the server log → reuse refused → old password rejected flow. It also checks the cookie flags as seen by the browser and the mobile layout. This run caught a sign-out redirect race that jsdom tests could not reproduce.
 
 ## Configuration

@@ -1,0 +1,136 @@
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 55px;
+  border: 1px solid var(--color-text);
+}
+
+.search:focus-within {
+  border-color: var(--color-primary);
+}
+
+.icon {
+  position: absolute;
+  left: var(--space-3);
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+
+.search input {
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--space-3) 0 50px;
+  background: transparent;
+  border: 0;
+  font-size: var(--fs-lg);
+  font-weight: 800;
+}
+
+.search input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.search input:focus {
+  outline: none;
+}
+
+.popup {
+  position: absolute;
+  top: calc(100% + 1px);
+  right: -1px;
+  left: -1px;
+  z-index: 30;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.popup[hidden] {
+  display: none;
+}
+
+.listbox {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.option[aria-selected='true'] {
+  background: var(--color-surface-raised);
+  box-shadow: inset 3px 0 var(--color-primary);
+}
+
+.option[data-kind='all'],
+.option[data-kind='did_you_mean'] {
+  color: var(--color-highlight);
+  font-weight: 800;
+}
+
+.option[data-kind='all'] {
+  border-top: 1px solid rgb(255 255 255 / 10%);
+}
+
+.thumb {
+  flex: none;
+  width: 36px;
+  height: 50px;
+  object-fit: cover;
+  background: var(--color-accent);
+}
+
+.optionText {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.optionTitle {
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionMeta {
+  color: var(--color-region);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.optionPrice {
+  flex: none;
+  font-size: var(--fs-base);
+  font-weight: 800;
+}
+
+.note {
+  padding: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+@media (max-width: 767px) {
+  .search {
+    height: 44px;
+  }
+
+  .search input {
+    font-size: var(--fs-md);
+  }
+}

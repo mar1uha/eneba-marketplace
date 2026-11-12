@@ -44,9 +44,11 @@ func run() error {
 		return err
 	}
 
+	store := catalog.NewStore(pool)
 	api := &httpapi.API{
 		DB:           pool,
-		Homepage:     homepage.NewService(pool, catalog.NewStore(pool)),
+		Catalog:      store,
+		Homepage:     homepage.NewService(pool, store),
 		Auth:         auth.NewService(pool, auth.LogMailer{}, cfg.AppBaseURL),
 		CookieSecure: cfg.CookieSecure,
 	}

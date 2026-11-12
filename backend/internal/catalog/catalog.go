@@ -80,17 +80,22 @@ func (s *Store) queryCards(ctx context.Context, q string, args ...any) ([]Produc
 	if err != nil {
 		return nil, fmt.Errorf("query product cards: %w", err)
 	}
-	cards, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ProductCard, error) {
+	cards, err := collectCards(rows)
+	if err != nil {
+		return nil, fmt.Errorf("scan product cards: %w", err)
+	}
+	return cards, nil
+}
+
+// collectCards scans rows selected in cardSelect's column order.
+func collectCards(rows pgx.Rows) ([]ProductCard, error) {
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (ProductCard, error) {
 		var c ProductCard
 		err := row.Scan(&c.ID, &c.Slug, &c.Title, &c.CoverURL, &c.BannerURL, &c.Platform, &c.Region,
 			&c.ProductType, &c.MSRPCents, &c.PriceCents, &c.OfferCount)
 		c.DiscountPercent = discountPercent(c.MSRPCents, c.PriceCents)
 		return c, err
 	})
-	if err != nil {
-		return nil, fmt.Errorf("scan product cards: %w", err)
-	}
-	return cards, nil
 }
 
 func discountPercent(msrp, price int) int {

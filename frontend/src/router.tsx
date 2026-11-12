@@ -9,6 +9,7 @@ import { LoginPage } from './features/auth/LoginPage'
 import { RegisterPage } from './features/auth/RegisterPage'
 import { ResetPasswordPage } from './features/auth/ResetPasswordPage'
 import { HomePage } from './features/home/HomePage'
+import { StorePage } from './features/store/StorePage'
 import { ComingSoon, NotFound, RouteError } from './pages/StatusPage'
 
 export const routes: RouteObject[] = [
@@ -18,7 +19,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <HomePage /> },
       { path: 'product/:slug', element: <ComingSoon feature="Product page" part={5} /> },
-      { path: 'search', element: <ComingSoon feature="Search" part={4} /> },
+      { path: 'store', element: <StorePage /> },
       { path: 'cart', element: <ComingSoon feature="Cart" part={5} /> },
       { path: 'reset-password', element: <ResetPasswordPage /> },
       {

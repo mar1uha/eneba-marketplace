@@ -1,6 +1,8 @@
-export type Platform = 'steam' | 'xbox' | 'playstation' | 'nintendo' | 'ea_app' | 'ubisoft_connect' | 'gog' | 'epic'
+export const PLATFORMS = ['steam', 'xbox', 'playstation', 'nintendo', 'ea_app', 'ubisoft_connect', 'gog', 'epic'] as const
+export type Platform = (typeof PLATFORMS)[number]
 
-export type Region = 'global' | 'europe' | 'north_america' | 'united_kingdom'
+export const REGIONS = ['global', 'europe', 'north_america', 'united_kingdom'] as const
+export type Region = (typeof REGIONS)[number]
 
 export interface ProductCard {
   id: number
