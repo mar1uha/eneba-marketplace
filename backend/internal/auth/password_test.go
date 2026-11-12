@@ -46,7 +46,10 @@ func TestConcurrentHashingStaysWithinMemoryBudget(t *testing.T) {
 	close(stop)
 	<-sampled
 
-	const budget = 160 << 20
+	// The heap includes garbage the collector has not reclaimed yet (190 MiB was seen on a CI runner),
+	// so the budget is the container's soft limit (GOMEMLIMIT in the Dockerfile), not the 76 MiB of
+	// live hashing memory. Without the cap the burst needs 760 MiB.
+	const budget = 400 << 20
 	if grew := int64(peak.Load()) - int64(before.HeapAlloc); grew > budget {
 		t.Errorf("40 concurrent hashes grew the heap by %d MiB; budget is %d MiB", grew>>20, budget>>20)
 	}
