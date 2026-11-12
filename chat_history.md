@@ -564,3 +564,28 @@ Committed: `8dad599 Cap concurrent password hashing, fix the sign-out race, and 
   1. The memory test's 160 MiB budget was too tight for the runner (190 MiB of heap, uncollected garbage included). Raised to the container's soft limit (400 MiB). It was confirmed still to fail against the pre-fix password code (760 MiB) and to pass with the cap.
   2. A race in the new test helper: test packages starting together on a fresh database each ran `CREATE EXTENSION IF NOT EXISTS`, which is not concurrency-safe (duplicate key in `pg_extension`). Reproduced locally by dropping the extensions (2 of 3 runs failed). A session advisory lock did not help, because the unlock ran inside the same implicit transaction, before COMMIT. A transaction lock (`pg_advisory_xact_lock`) fixed it: 6 of 6 runs pass.
 - CI is now green (tests pass; the deploy step skips with a warning until the secret is set). The live API runs `8dad599`, which has every runtime fix; later commits changed only tests, CI, and docs. Local cleanup: the temporary load-test binary was removed, the dev API restarted, and the local database is clean.
+
+---
+
+## Turn 13
+
+### Prompt
+
+/caveman
+
+### Response
+
+Switched to terse replies (caveman style) for the rest of the session. Committed files, docs, and this log stay in plain prose. Still pending on the user's side: add the repository secret `RENDER_DEPLOY_HOOK` and delete `C:\Users\mariu\render-deploy-hook.txt`.
+
+---
+
+## Turn 14
+
+### Prompt
+
+if thats all run more tests, also change the github name from "BattlefieldChangeDetector Team" to "Marius Mockevičius" since that was a name used for an earlier project
+
+### Answers (question dialog)
+
+- Rewrite the existing commits and force-push: **Rewrite all and force-push**
+- Email for rewritten commits: **marius.mockevicius07@gmail.com**
