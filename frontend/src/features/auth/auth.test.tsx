@@ -17,6 +17,8 @@ const guestApi = {
   'GET /api/auth/me': { status: 200, body: { user: null } },
   'GET /api/auth/providers': { status: 200, body: { google: false } },
   'GET /api/homepage': { status: 200, body: { server_time: '2026-11-11T10:00:00Z', blocks: [] } },
+  // The header shows a signed-in user's cart count.
+  'GET /api/cart': { status: 200, body: { lines: [], item_count: 0, total_cents: 0 } },
 }
 
 function fill(label: string, value: string) {

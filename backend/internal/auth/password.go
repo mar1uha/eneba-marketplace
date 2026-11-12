@@ -25,7 +25,19 @@ const (
 
 	minPasswordLen = 8
 	maxPasswordLen = 128
+
+	// maxConcurrentHashes caps argon2id runs in flight. Each holds argonMemory (19 MiB), so a burst
+	// of sign-ins waits its turn (under 80 MiB in total) instead of exhausting a 512 MB instance.
+	maxConcurrentHashes = 4
 )
+
+var hashSlots = make(chan struct{}, maxConcurrentHashes)
+
+func argonKey(password string, salt []byte, time, memory uint32, threads uint8, keyLen uint32) []byte {
+	hashSlots <- struct{}{}
+	defer func() { <-hashSlots }()
+	return argon2.IDKey([]byte(password), salt, time, memory, threads, keyLen)
+}
 
 var (
 	b64              = base64.RawStdEncoding
@@ -39,7 +51,7 @@ var (
 func HashPassword(password string) string {
 	salt := make([]byte, saltLen)
 	rand.Read(salt)
-	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	key := argonKey(password, salt, argonTime, argonMemory, argonThreads, argonKeyLen)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, argonMemory, argonTime, argonThreads, b64.EncodeToString(salt), b64.EncodeToString(key))
 }
@@ -67,7 +79,7 @@ func VerifyPassword(password, encoded string) (bool, error) {
 	if err != nil {
 		return false, errMalformedHash
 	}
-	got := argon2.IDKey([]byte(password), salt, time, memory, threads, uint32(len(want)))
+	got := argonKey(password, salt, time, memory, threads, uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 

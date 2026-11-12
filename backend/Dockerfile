@@ -8,6 +8,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/api /api
+# Render's free plan has 512 MB; collect garbage harder before getting near it.
+ENV GOMEMLIMIT=400MiB
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/api"]

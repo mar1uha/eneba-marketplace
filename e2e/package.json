@@ -1,0 +1,15 @@
+{
+  "name": "eneba-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser journeys, API fuzzing, and a sign-in burst against a running stack (see README, 'Browser and API scripts').",
+  "scripts": {
+    "shop": "node shop-e2e.mjs",
+    "store": "node store-e2e.mjs",
+    "fuzz": "node fuzz-api.mjs && node fuzz-text.mjs",
+    "burst": "node login-burst.mjs 60"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}

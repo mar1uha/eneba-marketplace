@@ -8,7 +8,8 @@ import './styles/global.css'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { RouterProvider } from 'react-router'
+// The react-router/dom provider supports `flushSync` navigations (sign-out relies on it).
+import { RouterProvider } from 'react-router/dom'
 import { createQueryClient } from './queryClient'
 import { router } from './router'
 

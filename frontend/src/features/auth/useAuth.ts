@@ -25,10 +25,11 @@ export function useSignOut() {
   const navigate = useNavigate()
   return useMutation({
     mutationFn: logout,
-    // Leave first: clearing the user while still on a protected page would make
-    // RequireAuth redirect to /login?next=... instead of the homepage.
+    // Leave first: clearing the user while still on a protected page would make RequireAuth redirect
+    // to /login?next=... instead of the homepage. flushSync commits the navigation right away;
+    // otherwise the router renders it in a transition and the protected page can still be mounted.
     onSettled: async () => {
-      await navigate('/')
+      await navigate('/', { flushSync: true })
       setUser(null)
     },
   })

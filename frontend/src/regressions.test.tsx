@@ -11,10 +11,9 @@ import { renderApp } from './test/renderApp'
 /** Bugs found while reviewing Part 5; each test failed before its fix. */
 
 const ok = (body: unknown) => ({ status: 200, body })
+const ada = { id: 1, email: 'ada@example.com', display_name: 'ada', has_password: true, google_linked: false, created_at: '2026-11-01T10:00:00Z' }
 const signedIn = {
-  'GET /api/auth/me': ok({
-    user: { id: 1, email: 'ada@example.com', display_name: 'ada', has_password: true, google_linked: false, created_at: '2026-11-01T10:00:00Z' },
-  }),
+  'GET /api/auth/me': ok({ user: ada }),
   'GET /api/cart': ok({ lines: [], item_count: 0, total_cents: 0 }),
 }
 
@@ -120,6 +119,32 @@ describe('regressions', () => {
 
     expect(await screen.findByText('Payment successful. Your keys are ready below.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Cart' })).toBeInTheDocument()
+  })
+
+  it('signs out from a protected page straight to the homepage', async () => {
+    // Found by a flaky test: the router renders navigations in a transition, so the account page was
+    // still mounted when the user was cleared and RequireAuth replaced "/" with /login?next=/account.
+    let user: typeof ada | null = ada
+    fakeApi({
+      ...signedIn,
+      'GET /api/auth/me': () => ok({ user }),
+      'GET /api/auth/providers': ok({ google: false }),
+      'GET /api/homepage': ok({ server_time: '2026-11-11T10:00:00Z', blocks: [] }),
+      'GET /api/auth/sessions': ok({ sessions: [] }),
+      'POST /api/auth/logout': () => {
+        user = null
+        return { status: 204 }
+      },
+    })
+    const router = renderApp('/account')
+    const history: string[] = []
+    router.subscribe((s) => history.push(`${s.historyAction} ${s.location.pathname}${s.location.search}`))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'ada' }))
+    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Sign out' }))
+    await screen.findByRole('link', { name: 'Log in | Register' })
+    await new Promise((r) => setTimeout(r, 200))
+    expect(history).toEqual(['PUSH /'])
   })
 
   it('survives a shared Store link whose search text is cut inside an emoji', async () => {

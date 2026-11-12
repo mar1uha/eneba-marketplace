@@ -12,7 +12,7 @@ The project is built in five parts. Each part starts with scoping questions, get
 | --- | --- | --- |
 | 1 | Scoping, architecture, setup, "Hello World" checks | Done |
 | 2 | Eneba design system and homepage built from backend-driven blocks | Done |
-| 3 | Authentication: email + password, Google sign-in, password reset, account security, protected routes | Done (Google needs OAuth credentials to try live) |
+| 3 | Authentication: email + password, Google sign-in, password reset, account security, protected routes | Done (Google sign-in works locally and on the live site) |
 | 4 | Store catalog with filters, facet counts, sorting, and pages; typo-tolerant search with live suggestions | Done |
 | 5 | Product page with seller offers and editions, cart, checkout with key reservation, simulated card payment, key delivery | Done |
 
@@ -59,6 +59,8 @@ The project is built in five parts. Each part starts with scoping questions, get
 eneba-marketplace/
 ├── README.md                 Architecture, data model, setup (this file)
 ├── chat_history.md           Full log of the AI-assisted build conversation
+├── render.yaml               Render blueprint for the API
+├── e2e/                      Browser journeys (Puppeteer), API fuzzing, and a sign-in burst against a running stack
 ├── backend/                  Go REST API
 │   ├── cmd/api/main.go       Entry point: config, DB connect, migrate, wiring, HTTP server, graceful shutdown
 │   └── internal/
@@ -447,7 +449,7 @@ All endpoints live under `/api` and return JSON.
 
 | Method | Path | Description | Since |
 | --- | --- | --- | --- |
-| GET | `/api/health` | Returns `{"status":"ok","db":"ok"}`. Returns HTTP 503 with `"db":"down"` if the database is unreachable. | Part 1 |
+| GET | `/api/health` | Returns `{"status":"ok","db":"ok"}`, plus `"version"` (the deployed git commit) on Render. Returns HTTP 503 with `"db":"down"` if the database is unreachable. | Part 1 |
 | GET | `/api/homepage` | Returns the visible homepage blocks with resolved data (see [Homepage blocks](#homepage-blocks)). | Part 2 |
 | GET | `/api/products` | Store search. Query: `q`, `platform`, `region`, `genre` (comma-separated), `min_price_cents`, `max_price_cents`, `sort` (`relevance`, `best_selling`, `price_asc`, `price_desc`), `page`, `page_size` (max 48). Returns `items`, `total`, `page`, `page_size`, the applied `sort`, `facets`, and `did_you_mean` when nothing matches. 400 for unknown values. | Part 4 |
 | GET | `/api/search/suggestions?q=` | Top 6 matches for the header search box, with `total` and `did_you_mean`; no facets. | Part 4 |
@@ -642,7 +644,35 @@ What the tests cover:
   - Backend (`httpapi/regressions_test.go`): a script sent malformed input to every endpoint and found 500s. A NUL byte in a product URL or search text, invalid UTF-8 in search text, and a huge browser-supplied "price when added" in a guest cart (overflowing the `int` column) each crashed a handler. They now get a 404/400, or the price is ignored.
   - Frontend (`src/regressions.test.tsx`): release dates showed a day early west of UTC; the card expiry turned "1/30" into "13/0"; a network failure on the order page said "This order does not exist"; a failed cancel was silent; and a shared Store link with an emoji at the 100th character split it in half, which crashed the page with "URI malformed" while building pagination links. Found on the live site: the header cart badge kept the old count until a refetch returned (about 350 ms on real latency); the cached cart now drops the paid lines at once. The fake API can answer slowly to reproduce this.
 - **Purchase journey in the browser** (headless Chrome, real backend, 27 checks): search → product → edition switch → guest cart → register → merged cart → checkout → empty form → declined card → paid → hidden keys → reveal (matches the database) → reload → repeated payment request charges nothing → order history → stock went down → expired reservation → cancel → mobile product and cart pages. The run caught a product cover stretched by its height attribute, and two accessibility issues: edition links read as "Europe€8.09", and two offers of the same game in the cart had identical button labels.
-- **Browser end-to-end** (headless Chrome, real backend, 20 checks): the full register → second device → sign out others → change password → header sign-out → forgot password → reset link from the server log → reuse refused → old password rejected flow. It also checks the cookie flags as seen by the browser and the mobile layout. This run caught a sign-out redirect race that jsdom tests could not reproduce.
+- **Browser end-to-end** (headless Chrome, real backend, 20 checks): the full register → second device → sign out others → change password → header sign-out → forgot password → reset link from the server log → reuse refused → old password rejected flow. It also checks the cookie flags as seen by the browser and the mobile layout. This run caught a sign-out redirect race that jsdom tests could not reproduce. (That Part 3 script was run in an earlier session and is not in the repo; the Part 4 and 5 scripts are, in `e2e/`.)
+- **Stress tests** (`go test` runs them; `go test -short` skips them):
+  - `auth`: 40 password hashes at once must stay within a memory budget. Each argon2id hash holds 19 MiB, and before a cap of 4 concurrent hashes the burst grew the heap by **760 MiB**, enough to crash Render's 512 MB free plan. On the real server, 60 simultaneous sign-ins peaked at **919 MB before the fix and 194 MB after**, taking 1.0 s instead of 0.7 s. The Docker image also sets `GOMEMLIMIT=400MiB`.
+  - `httpapi`: 60 buyers register, fill carts, check out, and pay at the same moment for 25 keys (demand: 120), with declines and triple-clicked Pay buttons. Exactly 25 keys are sold, none twice, each paid order has one successful payment and exactly its quantity of keys. One user's double-click storms: 30 add-to-cart clicks against 5 keys add exactly 5; 15 checkout clicks leave one open order; 20 Pay clicks charge once. 32 clients browsing and searching for 3 seconds get no errors (about 800–1,400 requests/s in-process).
+- **Flaky test that was a real bug:** the header sign-out test began failing 8 times in 10. The router renders navigations in a transition, so the account page was still mounted when the user was cleared, and the route guard redirected to `/login`. Sign-out now navigates with `flushSync`. That option needs the `RouterProvider` from `react-router/dom`, which the app now uses; with the plain `react-router` provider it was silently ignored. A regression test checks the full navigation history.
+
+#### Load test (autocannon, 50 connections × 8 s each, local server, Windows laptop)
+
+| Endpoint | Requests/s | p50 | p99 | Errors |
+| --- | ---: | ---: | ---: | ---: |
+| `GET /api/products/hades` | 6,855 | 4 ms | 22 ms | 0 |
+| `GET /api/search/suggestions?q=hollow kn` | 1,433 | 31 ms | 75 ms | 0 |
+| `GET /api/homepage` | 494 | 62 ms | 1,251 ms | 0 |
+| `GET /api/products?sort=price_asc&page=3` | 274 | 109 ms | 423 ms | 0 |
+| `GET /api/products?q=assasins creed` | 266 | 90 ms | 1,370 ms | 0 |
+
+There were no errors or timeouts in about 75,000 requests. The long p99 on the homepage and on searches with facet counts comes from requests queuing for the small connection pool (`max(4, CPUs)`); caching the homepage would be the next step if it mattered.
+
+#### Browser and API scripts (`e2e/`)
+
+```bash
+cd e2e && npm install
+npm run shop     # Part 5 purchase journey (27 checks): search → product → guest cart → register → checkout → pay → reveal key
+npm run store    # Part 4 store and search (36 checks)
+npm run fuzz     # malformed input to every endpoint; must find 0 server errors
+npm run burst    # 60 sign-ins at once
+```
+
+They drive a running stack: the frontend at `BASE` (default `http://localhost:5173`) and the API at `API` (default `http://localhost:8080`). They read and clean the database at `E2E_DB_URL` (default: `DATABASE_URL` in `backend/.env`) with `psql`; set `PSQL` and `CHROME_PATH` if they are not in the default places. Test accounts are deleted afterwards and their keys returned to stock. To check the live site, set `BASE=https://eneba-marketplace-steel.vercel.app` and `E2E_DB_URL` to the Neon connection string.
 
 ## Configuration
 

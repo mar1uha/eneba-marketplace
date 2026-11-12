@@ -1,9 +1,56 @@
 package auth
 
 import (
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
+
+// Each argon2id hash holds argonMemory (19 MiB) while it runs. A burst of 40 sign-ins must not need
+// all of that at once: 760 MiB would crash a 512 MB free-tier instance.
+func TestConcurrentHashingStaysWithinMemoryBudget(t *testing.T) {
+	if testing.Short() {
+		t.Skip("stress test")
+	}
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	var peak atomic.Uint64
+	stop, sampled := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(sampled)
+		var m runtime.MemStats
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			runtime.ReadMemStats(&m)
+			if m.HeapAlloc > peak.Load() {
+				peak.Store(m.HeapAlloc)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+
+	var wg sync.WaitGroup
+	for range 40 {
+		wg.Go(func() { HashPassword("burst of sign-ins") })
+	}
+	wg.Wait()
+	close(stop)
+	<-sampled
+
+	const budget = 160 << 20
+	if grew := int64(peak.Load()) - int64(before.HeapAlloc); grew > budget {
+		t.Errorf("40 concurrent hashes grew the heap by %d MiB; budget is %d MiB", grew>>20, budget>>20)
+	}
+}
 
 func TestHashAndVerifyPassword(t *testing.T) {
 	hash := HashPassword("correct horse battery")
