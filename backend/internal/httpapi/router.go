@@ -27,7 +27,7 @@ type API struct {
 
 func NewRouter(api *API, corsOrigins []string) http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
+	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer, privateResponses)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   corsOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -87,4 +87,15 @@ func NewRouter(api *API, corsOrigins []string) http.Handler {
 		writeError(w, http.StatusNotFound, "not found")
 	})
 	return r
+}
+
+// privateResponses keeps every response out of shared and browser caches and stops browsers from
+// sniffing JSON as another content type. Responses carry account, cart and order data, and without a
+// Cache-Control of their own the Vercel proxy marked them "public".
+func privateResponses(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
 }

@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import puppeteer from 'puppeteer-core'
-import { BASE, CHROME, SHOTS, restockOrphanedKeys, sql } from './config.mjs'
+import { BASE, CHROME, RESULTS, SHOTS, restockOrphanedKeys, sql } from './config.mjs'
 
 fs.mkdirSync(SHOTS, { recursive: true })
 
@@ -54,8 +54,8 @@ try {
   // 1. Search from the header, open the product.
   await page.type('#site-search', 'hades')
   await Promise.all([page.waitForFunction(() => location.pathname === '/store'), page.keyboard.press('Enter')])
-  await page.waitForSelector('section[aria-label="Products"] a[href="/product/hades"]')
-  await Promise.all([page.waitForFunction(() => location.pathname === '/product/hades'), page.click('section[aria-label="Products"] a[href="/product/hades"]')])
+  await page.waitForSelector(`${RESULTS} a[href="/product/hades"]`)
+  await Promise.all([page.waitForFunction(() => location.pathname === '/product/hades'), page.click(`${RESULTS} a[href="/product/hades"]`)])
   await page.waitForSelector('h1')
   check('product page opens from search', (await text(page, 'h1')) === 'Hades')
 
@@ -120,7 +120,7 @@ try {
     sql(`SELECT count(*) FROM digital_keys k JOIN order_items oi ON oi.id = k.order_item_id WHERE oi.order_id = ${orderId} AND k.status = 'reserved'`) === '2')
   await page.screenshot({ path: path.join(SHOTS, '13-declined.png'), fullPage: true })
 
-  await page.click('input[name="cc-number"]', { clickCount: 3 })
+  await page.click('input[name="cc-number"]', { count: 3 })
   await page.type('input[name="cc-number"]', '4242424242424242')
   await Promise.all([page.waitForFunction(() => location.pathname.startsWith('/account/orders/'), { timeout: 10000 }), page.click('form button[type="submit"]')])
   await waitText(page, '[role="status"]', /Payment successful/)

@@ -33,4 +33,4 @@ ALTER TABLE products DROP COLUMN search_text, DROP COLUMN search_keywords;
 DROP FUNCTION search_normalize(text);
 DROP TABLE product_genres;
 DROP TABLE genres;
-DROP EXTENSION IF EXISTS fuzzystrmatch;
+-- fuzzystrmatch is database-wide and may serve other schemas, so rolling back leaves it in place.

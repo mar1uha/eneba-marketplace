@@ -78,7 +78,11 @@ export function StorePage() {
           onChange={update}
         />
 
-        <section className={styles.results} aria-label="Products">
+        <section className={styles.results} aria-labelledby={`${panelId}-results`}>
+          {/* Keeps the heading outline whole (h1, then h2, then the cards' h3) for screen-reader navigation. */}
+          <h2 id={`${panelId}-results`} className="visually-hidden">
+            Products
+          </h2>
           <div className={styles.toolbar}>
             <button
               ref={filtersButtonRef}

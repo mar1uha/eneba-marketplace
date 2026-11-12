@@ -28,3 +28,6 @@ export const restockOrphanedKeys = () =>
        WHERE order_item_id IS NULL AND status <> 'available'`)
 
 export const SHOTS = path.join(import.meta.dirname, 'shots')
+
+// The Store's results section, labelled by its visually hidden "Products" heading.
+export const RESULTS = 'section[aria-labelledby$="-results"]'

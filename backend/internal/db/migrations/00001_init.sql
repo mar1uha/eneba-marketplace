@@ -2,4 +2,4 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- +goose Down
-DROP EXTENSION IF EXISTS pg_trgm;
+-- The extension is database-wide and may serve other schemas, so rolling back leaves it in place.

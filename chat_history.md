@@ -589,3 +589,53 @@ if thats all run more tests, also change the github name from "BattlefieldChange
 
 - Rewrite the existing commits and force-push: **Rewrite all and force-push**
 - Email for rewritten commits: **marius.mockevicius07@gmail.com**
+
+### Response
+
+**Commit author.** All 14 commits were rewritten with `git filter-branch --env-filter` so author and committer read "Marius Mockevičius <marius.mockevicius07@gmail.com>" (the address is linked to the GitHub account, so commits show the right profile). The global git identity was changed too, so new commits use it. Messages, dates, and file contents are identical; only the commit IDs changed. The rewrite was force-pushed with `--force-with-lease`, and a local branch `backup/pre-author-rewrite` keeps the old history until it is no longer needed.
+
+Earlier turns of this log quote the old commit IDs. They map to the new ones like this:
+
+| Old | New | Commit |
+| --- | --- | --- |
+| `30648f0` | `0b5340c` | Part 1 |
+| `9f89b5e` | `5326026` | Part 2 |
+| `5175019` | `9ea5ef2` | Part 3 |
+| `720dd74` | `7918132` | Part 4 |
+| `9f78f98` | `d186d90` | Part 5 |
+| `a3ee90f` | `ea2f1f4` | Docker image and Render service |
+| `d85ea57` | `2f3d1ff` | Vercel API route |
+| `91084b8` | `c22494b` | Cart badge after payment |
+| `8dad599` | `dddabad` | Hashing cap, sign-out race, stress tests |
+| `116bad7` | `3b5529f` | GitHub Actions |
+| `2ea989a` | `5d48176` | Memory test budget |
+| `3297d3e` | `0102565` | Serialized test schema setup |
+| `0c7e451` | `66abfe2` | CI findings in the docs |
+| `580530d` | `52e3769` | Log of turns 13 and 14 |
+
+**More tests.** Each new kind of test either passed or found a real problem, which was then fixed test-first:
+
+1. **Known vulnerabilities:** `govulncheck` found none in the Go code. `npm audit` found none in `frontend/`. In `e2e/` it reported a vulnerable dependency of `puppeteer-core` 24, fixed by upgrading to 25 (0 remaining).
+2. **Go native fuzzing** (three new targets, about 3.2 million generated inputs, no failures):
+   - `FuzzParseSearchQuery`: search parameters always parse to valid UTF-8 with no NUL bytes, at most 100 characters, in-range page and page size, ordered price bounds, known and unique filter values, and a valid sort.
+   - `FuzzCardCheck`: only the test cards are accepted, and the brand and last four digits match the number.
+   - `FuzzNormalizeItems`: a cart never has more than 20 lines; offers are unique and positive, quantities are 1–10, and the "price when added" is bounded.
+3. **Migration round trip** (new `db/migrate_test.go`): roll every migration back to zero, check that no table survives, apply them again, and compare the seed counts. **Found a bug:** the Down migrations of `00001` and `00007` dropped the `pg_trgm` and `fuzzystrmatch` extensions. Extensions are database-wide, so rolling back one schema would break every other schema using them (here, the other test schemas). Rolling back now leaves extensions in place. `db.Migrate` was split so the test can drive the same migrator (`db.NewMigrator`).
+4. **Accessibility scan** (new `e2e/a11y.mjs`, axe-core, WCAG 2.1 A/AA plus best practices, 10 pages × desktop and mobile). **Found:** on the Store, product card titles (`h3`) came straight after the page title (`h1`), which breaks heading navigation with a screen reader. A visually hidden "Products" heading now labels the results section. 0 violations remain. jsdom has no CSS, so this cannot be reproduced in a Vitest test; the axe scan is the regression check.
+5. **Security headers** (new `e2e/headers.mjs` and `httpapi/headers_test.go`, both written first and failing: 16 problems on the live site, and 10 in the Go test). **Found:**
+   - No Content-Security-Policy, no clickjacking protection, no `nosniff`, and no referrer policy on the site.
+   - API responses carrying account, cart, and order data had no `Cache-Control`, so Vercel's proxy marked them `Cache-Control: public`.
+
+   **Fix:**
+   - The API now sends `Cache-Control: no-store` and `X-Content-Type-Options: nosniff` on every response (a `privateResponses` middleware).
+   - `vercel.json` now sets these headers: a strict CSP (scripts, styles, fonts, and requests only from the site; images also from Steam's image CDN; no framing), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and a `Permissions-Policy`.
+   - `npm run preview` now serves the production build with the same headers on port 5173, so the browser suites can run under the CSP before deploying. Any blocked resource is a console error, which fails them.
+6. **The browser suites on the production build under the CSP** found two problems in the test scripts themselves:
+   - The `puppeteer-core` 25 upgrade silently dropped the `clickCount` option. Triple-click no longer selected the search box, so the store suite typed "witcherwitcher game". The scripts now use `count`.
+   - The scripts selected the results by the old `aria-label="Products"`. They now share one selector in `e2e/config.mjs`.
+
+   The axe scan needed `page.setBypassCSP(true)`, because the CSP correctly blocks the inline script it injects.
+
+Results on the local production build: store 36/36, purchase journey 27/27, accessibility 0 violations, headers all present, no console errors. Go: `go vet` clean; all 6 test packages pass, including the stress tests. Frontend: Vitest 57/57, lint and type-check clean. The local database was clean afterwards.
+
+`go test -race` was not added to CI in this turn. The race detector needs a C compiler, which this Windows machine lacks, so its effect on the stress and memory-budget tests could not be checked locally first.

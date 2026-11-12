@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import puppeteer from 'puppeteer-core'
-import { BASE, CHROME, SHOTS } from './config.mjs'
+import { BASE, CHROME, RESULTS, SHOTS } from './config.mjs'
 
 fs.mkdirSync(SHOTS, { recursive: true })
 
@@ -49,11 +49,11 @@ const waitText = (page, sel, pattern, timeout = 5000) =>
   )
 const url = (page) => new URL(page.url())
 const cardPrices = (page) =>
-  page.$$eval('section[aria-label="Products"] ul[aria-busy] > li > a', (cards) =>
+  page.$$eval(`${RESULTS} ul[aria-busy] > li > a`, (cards) =>
     cards.map((c) => Number(c.querySelector('p:nth-of-type(2)').textContent.replace(/[^\d.,]/g, '').replace(',', '.'))),
   )
-const cardTitles = (page) => page.$$eval('section[aria-label="Products"] ul[aria-busy] > li > a h3', (hs) => hs.map((h) => h.textContent))
-const cardHrefs = (page) => page.$$eval('section[aria-label="Products"] ul[aria-busy] > li > a', (as) => as.map((a) => a.getAttribute('href')))
+const cardTitles = (page) => page.$$eval(`${RESULTS} ul[aria-busy] > li > a h3`, (hs) => hs.map((h) => h.textContent))
+const cardHrefs = (page) => page.$$eval(`${RESULTS} ul[aria-busy] > li > a`, (as) => as.map((a) => a.getAttribute('href')))
 // Waits until no API request has been in flight for 250 ms, then for React to render the result.
 async function settle(page, timeout = 10000) {
   const start = Date.now()
@@ -102,14 +102,14 @@ try {
   check('suggestions closed after search', (await page.$eval('#site-search', (i) => i.getAttribute('aria-expanded'))) === 'false')
 
   // 3. Did you mean.
-  await page.click('#site-search', { clickCount: 3 })
+  await page.click('#site-search', { count: 3 })
   await page.type('#site-search', 'witcher game')
   await Promise.all([page.waitForFunction(() => location.search.includes('game')), page.keyboard.press('Enter')])
   await waitText(page, 'h2', /No results for “witcher game”/)
-  const dym = await text(page, 'section[aria-label="Products"] [role="status"] a')
+  const dym = await text(page, `${RESULTS} [role="status"] a`)
   check('did you mean shows the closest title', dym === 'The Witcher 3: Wild Hunt', dym)
   await page.screenshot({ path: path.join(SHOTS, '02-did-you-mean.png') })
-  await page.click('section[aria-label="Products"] [role="status"] a')
+  await page.click(`${RESULTS} [role="status"] a`)
   await waitText(page, 'h1 + p', /^2 results$/)
   check('did you mean link runs that search', (await cardTitles(page)).every((t) => t === 'The Witcher 3: Wild Hunt'))
 

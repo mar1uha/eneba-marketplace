@@ -592,11 +592,16 @@ go vet ./...
 go test ./...             # integration tests need TEST_DATABASE_URL (read from backend/.env); they are skipped without it
                           # each test package migrates its own schema (test_catalog, test_orders, ...) via internal/testdb,
                           # so packages run in parallel without seeing each other's fixtures
+go test ./internal/httpapi -run '^$' -fuzz FuzzParseSearchQuery -fuzztime 60s   # explores one fuzz target; orders
+go test ./internal/orders  -run '^$' -fuzz FuzzNormalizeItems  -fuzztime 60s    # also has FuzzCardCheck
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...                            # known vulnerabilities
 
 cd frontend
 npm test                  # Vitest + Testing Library, run in America/Los_Angeles to catch time-zone bugs
 npm run lint
 npm run build             # type-checks, then builds
+npm run preview           # serves the build on :5173 with the production security headers (from vercel.json)
+npm audit                 # also run in e2e/
 ```
 
 What the tests cover:
@@ -651,6 +656,11 @@ What the tests cover:
 - **Continuous integration** (`.github/workflows/deploy-api.yml`): `go vet` and the full Go suite, stress tests included, run on GitHub's Linux runners against a fresh PostgreSQL 17 for every backend change. Its first runs found two problems a long-lived local database hid:
   - The memory test's budget was a guess too tight for another machine's garbage collector; it is now the container's soft limit (400 MiB), which still fails without the cap (760 MiB).
   - Test packages starting together on a fresh database raced on `CREATE EXTENSION IF NOT EXISTS`, which is not concurrency-safe. Reproduced locally by dropping the extensions (2 of 3 runs failed); a transaction-scoped advisory lock in `internal/testdb` fixed it (6 of 6 runs pass).
+- **Fuzz tests** (Go native fuzzing; `go test` runs the seed inputs, `-fuzz` explores): search-parameter parsing always returns valid UTF-8 without NUL bytes, at most 100 characters, a page and page size in range, ordered price bounds, known and unique filter values, and a valid sort. The card check accepts only the test cards, with a matching brand and last four digits. Cart normalization keeps at most 20 lines with unique positive offers, quantities 1–10, and a bounded "price when added". About 3.2 million generated inputs found no failures.
+- **Migration round trip** (`db/migrate_test.go`): every migration is rolled back to zero and applied again on its own schema; no table may survive the rollback, and the seed counts must match afterwards. It found that two Down migrations dropped `pg_trgm` and `fuzzystrmatch`, which are database-wide and were still used by the other test schemas. Rolling back now leaves extensions in place.
+- **Security headers:** a check of the live site found no Content-Security-Policy, no clickjacking protection (`X-Frame-Options`/`frame-ancestors`), no `nosniff`, and no referrer policy. Worse, API responses with account, cart, and order data had no `Cache-Control`, so Vercel's proxy marked them `public`. The API now sends `Cache-Control: no-store` and `X-Content-Type-Options: nosniff` on every response (`httpapi/headers_test.go`), and `vercel.json` sets the page headers (see Deployment). `e2e/headers.mjs` checks the deployed site.
+- **Accessibility scan** (`e2e/a11y.mjs`, axe-core, WCAG 2.1 A/AA plus best practices, 10 pages at desktop and mobile sizes, including a cart with a line): it found the Store's product cards (`h3`) directly under the page title (`h1`), which breaks heading navigation for screen-reader users. A visually hidden "Products" heading now labels the results. 0 violations remain.
+- **Dependency scans:** `govulncheck` finds no known vulnerabilities in the Go code; `npm audit` finds none in `frontend/` and none in `e2e/` after upgrading `puppeteer-core` 24 → 25. That upgrade silently dropped the `clickCount` click option, which the browser suites caught (a search box no longer cleared by triple-click); they now use `count`.
 - **Flaky test that was a real bug:** the header sign-out test began failing 8 times in 10. The router renders navigations in a transition, so the account page was still mounted when the user was cleared, and the route guard redirected to `/login`. Sign-out now navigates with `flushSync`. That option needs the `RouterProvider` from `react-router/dom`, which the app now uses; with the plain `react-router` provider it was silently ignored. A regression test checks the full navigation history.
 
 #### Load test (autocannon, 50 connections × 8 s each, local server, Windows laptop)
@@ -673,9 +683,11 @@ npm run shop     # Part 5 purchase journey (27 checks): search → product → g
 npm run store    # Part 4 store and search (36 checks)
 npm run fuzz     # malformed input to every endpoint; must find 0 server errors
 npm run burst    # 60 sign-ins at once
+npm run a11y     # axe-core accessibility scan; fails on serious or critical violations
+npm run headers  # security headers; needs the production headers (npm run preview, or the live site)
 ```
 
-They drive a running stack: the frontend at `BASE` (default `http://localhost:5173`) and the API at `API` (default `http://localhost:8080`). They read and clean the database at `E2E_DB_URL` (default: `DATABASE_URL` in `backend/.env`) with `psql`; set `PSQL` and `CHROME_PATH` if they are not in the default places. Test accounts are deleted afterwards and their keys returned to stock. To check the live site, set `BASE=https://eneba-marketplace-steel.vercel.app` and `E2E_DB_URL` to the Neon connection string.
+They drive a running stack: the frontend at `BASE` (default `http://localhost:5173`) and the API at `API` (default `http://localhost:8080`). Run them against `npm run preview` rather than the dev server to test the production build under its Content-Security-Policy: any blocked script, style, image, or request shows up as a console error, which fails the shop and store suites. They read and clean the database at `E2E_DB_URL` (default: `DATABASE_URL` in `backend/.env`) with `psql`; set `PSQL` and `CHROME_PATH` if they are not in the default places. Test accounts are deleted afterwards and their keys returned to stock. To check the live site, set `BASE=https://eneba-marketplace-steel.vercel.app` and `E2E_DB_URL` to the Neon connection string.
 
 ## Configuration
 
@@ -703,7 +715,7 @@ They drive a running stack: the frontend at `BASE` (default `http://localhost:51
 
 - **Database:** a free Neon project. The API uses the *direct* connection string, not the pooled one, because migrations take a session-level advisory lock that a transaction pooler would break. Migrations and seed data ran on the first boot.
 - **API:** [`render.yaml`](render.yaml) describes the service and [`backend/Dockerfile`](backend/Dockerfile) builds a static Go binary on a distroless, non-root image. Render cannot auto-deploy a repository added by URL, so [`.github/workflows/deploy-api.yml`](.github/workflows/deploy-api.yml) runs `go vet` and the full Go test suite (against a PostgreSQL 17 service container) on every push that touches the backend. Only if they pass does it call the service's deploy hook, stored as the repository secret `RENDER_DEPLOY_HOOK`. Render checks `/api/health`, which reports the live commit as `version`. Environment variables are set in Render, never in the repo: `DATABASE_URL`, `APP_BASE_URL` and `CORS_ORIGINS` (both the Vercel URL), `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET`. Cookies default to `Secure` with the `__Host-` prefix.
-- **Website:** [`frontend/vercel.json`](frontend/vercel.json) proxies `/api/*` to Render, so the browser only talks to the Vercel domain and the session cookie stays first-party, and sends every other path to `index.html` for client-side routing. Deploy with `cd frontend && npx vercel deploy --prod`.
+- **Website:** [`frontend/vercel.json`](frontend/vercel.json) proxies `/api/*` to Render, so the browser only talks to the Vercel domain and the session cookie stays first-party, and sends every other path to `index.html` for client-side routing. It also sets the security headers: a Content-Security-Policy that allows scripts, styles, fonts, and requests only from the site itself and images only from the site and Steam's image CDN (no inline scripts, no `eval`, no framing, no plugins, forms only to the site), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and a `Permissions-Policy` that turns off camera, microphone, geolocation, and payment APIs. Deploy with `cd frontend && npx vercel deploy --prod`.
 - **Google sign-in in production:** the OAuth client in Google Cloud Console must list `https://eneba-marketplace-steel.vercel.app/api/auth/google/callback` as an authorized redirect URI. While the consent screen is in "Testing" mode, only listed test users can sign in with Google.
 - **Free-tier behavior:** Render's free service sleeps after about 15 minutes idle and takes up to a minute to wake. If the first request times out, the page shows its error state with a Try again button. Neon's free compute also suspends when idle and wakes in about a second.
 - **Checked after deploying:** the browser suites ran against the live site: the store suite (36 checks) and the purchase journey (27 checks). The API fuzzers found 0 server errors there. A burst of 40 simultaneous sign-ins sent straight to Render was answered without a crash (queued for about 10 s on the free plan's CPU). A light read load (10 connections) ran at 75–116 requests/s with a p99 around 300 ms and no errors. The purchase run found that the header cart badge lagged about 350 ms behind a payment on real network latency; it is fixed and covered by a regression test.
