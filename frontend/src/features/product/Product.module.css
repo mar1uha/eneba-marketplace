@@ -1,0 +1,425 @@
+.hero {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+/* The wide banner art, blurred and darkened behind the product summary. */
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: -20px;
+  background: var(--banner) center / cover no-repeat;
+  filter: blur(14px) brightness(0.45);
+}
+
+.heroInner {
+  position: relative;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
+  align-items: start;
+  gap: var(--space-6);
+  padding-block: var(--space-8);
+}
+
+.cover {
+  width: 100%;
+  /* The height attribute (for layout before load) would otherwise override the aspect ratio. */
+  height: auto;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  background: var(--color-accent);
+  box-shadow: var(--shadow-pop);
+}
+
+.summary {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.title {
+  font-size: var(--fs-3xl);
+  font-weight: 800;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.platform {
+  padding: 4px var(--space-2);
+  background: var(--color-overlay);
+}
+
+.region {
+  color: var(--color-region);
+}
+
+.meta {
+  color: var(--color-text-soft);
+  text-transform: none;
+}
+
+.genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.genres a {
+  display: block;
+  padding: 4px var(--space-2);
+  border: 1px solid rgb(255 255 255 / 35%);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.genres a:hover {
+  border-color: var(--color-text);
+}
+
+.editions {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.editionsLabel {
+  color: var(--color-text-soft);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.editions ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.edition {
+  display: grid;
+  gap: 2px;
+  min-width: 150px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-overlay);
+  border: 1px solid transparent;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.edition strong {
+  font-size: var(--fs-md);
+}
+
+.edition:hover {
+  border-color: var(--color-text-soft);
+}
+
+.edition[aria-current='page'] {
+  border-color: var(--color-primary);
+}
+
+/* Buy box */
+
+.buyBox {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.buyLabel {
+  color: var(--color-primary);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.was {
+  color: var(--color-text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 800;
+}
+
+.discount {
+  color: var(--color-positive);
+}
+
+.bestPrice {
+  font-size: var(--fs-3xl);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.seller {
+  color: var(--color-text-soft);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.buyActions {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.buyActions button {
+  min-height: 48px;
+}
+
+.stock {
+  color: var(--color-positive);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+}
+
+.stock[data-level='low'] {
+  color: var(--color-primary);
+}
+
+.stock[data-level='out'] {
+  color: var(--color-text-muted);
+}
+
+.added {
+  color: var(--color-positive);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+.added a {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.addError {
+  color: var(--color-error);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+.muted {
+  color: var(--color-text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+/* Offers and description */
+
+.body {
+  display: grid;
+  gap: var(--space-8);
+  padding-block: var(--space-8);
+}
+
+.section {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.sectionTitle {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+}
+
+.count {
+  color: var(--color-text-muted);
+  font-size: var(--fs-lg);
+}
+
+.offers {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.offer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 140px 180px;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+}
+
+.offer[data-sold-out='true'] {
+  opacity: 0.6;
+}
+
+.offerSeller {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sellerName {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 800;
+}
+
+.bestBadge {
+  padding: 2px var(--space-2);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+}
+
+.rating {
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.offerPrice {
+  display: grid;
+  justify-items: end;
+  font-size: var(--fs-xl);
+  font-weight: 800;
+}
+
+.offerWas {
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+}
+
+.offerAction {
+  display: grid;
+  justify-items: stretch;
+  gap: 4px;
+}
+
+.inCart {
+  color: var(--color-highlight);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  text-align: center;
+}
+
+.offerAction .added,
+.offerAction .addError {
+  font-size: var(--fs-xs);
+  text-align: center;
+}
+
+.description {
+  max-width: 760px;
+  color: var(--color-text-soft);
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+/* Loading */
+
+.skeleton {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: var(--space-6);
+  padding-block: var(--space-8);
+}
+
+.skeletonCover {
+  aspect-ratio: 2 / 3;
+}
+
+.skeletonLines {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+}
+
+.skeletonLines div {
+  height: 30px;
+}
+
+.skeletonLines div:first-child {
+  width: 70%;
+  height: 44px;
+}
+
+.skeletonLines div:last-child {
+  width: 40%;
+}
+
+@media (max-width: 1023px) {
+  .heroInner {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .buyBox {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 767px) {
+  .heroInner {
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: var(--space-3);
+    padding-block: var(--space-4);
+  }
+
+  .title {
+    font-size: var(--fs-xl);
+  }
+
+  .editions {
+    grid-column: 1 / -1;
+  }
+
+  .offer {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'seller price'
+      'stock price'
+      'action action';
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-3);
+  }
+
+  .offerSeller {
+    grid-area: seller;
+  }
+
+  .offer > :nth-child(2) {
+    grid-area: stock;
+  }
+
+  .offerPrice {
+    grid-area: price;
+    align-self: center;
+  }
+
+  .offerAction {
+    grid-area: action;
+    margin-top: var(--space-2);
+  }
+
+  .skeleton {
+    grid-template-columns: 110px 1fr;
+  }
+}

@@ -217,6 +217,115 @@
   text-align: center;
 }
 
+/* Orders */
+
+.orders {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.orderRow {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding-block: var(--space-3);
+  border-top: 1px solid rgb(255 255 255 / 10%);
+}
+
+.orders li:first-child .orderRow {
+  border-top: 0;
+}
+
+.orderRow:hover strong {
+  text-decoration: underline;
+}
+
+.orderRow img,
+.orderItem img {
+  object-fit: cover;
+  background: var(--color-accent);
+}
+
+.orderRow img {
+  width: 48px;
+  height: 66px;
+}
+
+.orderText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.orderTotal {
+  font-size: var(--fs-lg);
+}
+
+.status {
+  padding: 2px var(--space-2);
+  background: rgb(255 255 255 / 8%);
+  color: var(--color-text-soft);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.status[data-status='paid'] {
+  background: color-mix(in srgb, var(--color-positive) 18%, transparent);
+  color: var(--color-positive);
+}
+
+.status[data-status='pending'] {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: var(--color-primary);
+}
+
+.orderItem {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.orderItem img {
+  width: 64px;
+  height: 88px;
+}
+
+.keys {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  background: rgb(255 255 255 / 5%);
+}
+
+.code {
+  min-width: 210px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.keyError {
+  color: var(--color-error);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
 @media (max-width: 767px) {
   .layout {
     grid-template-columns: 1fr;
@@ -234,5 +343,19 @@
 
   .details dd {
     margin-bottom: var(--space-2);
+  }
+
+  .orderRow {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+  }
+
+  .orderRow .status {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .code {
+    min-width: 0;
+    font-size: var(--fs-md);
   }
 }

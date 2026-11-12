@@ -23,7 +23,8 @@ const (
 	suggestionsToShow = 6
 )
 
-var genreSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+// slugPattern matches product and genre slugs, as the database CHECK constraints define them.
+var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // listProducts serves the Store: GET /api/products?q=&platform=steam,xbox&region=&genre=
 // &min_price_cents=&max_price_cents=&sort=&page=&page_size=
@@ -72,7 +73,7 @@ func parseSearchQuery(v url.Values) (catalog.SearchQuery, error) {
 	if q.Regions, err = parseList(v, "region", func(s string) bool { return slices.Contains(catalog.Regions, s) }); err != nil {
 		return q, err
 	}
-	if q.Genres, err = parseList(v, "genre", genreSlugPattern.MatchString); err != nil {
+	if q.Genres, err = parseList(v, "genre", slugPattern.MatchString); err != nil {
 		return q, err
 	}
 	if q.MinPriceCents, err = parseInt(v, "min_price_cents", 0, 1, maxPriceCents); err != nil {
@@ -101,6 +102,10 @@ func parseSearchQuery(v url.Values) (catalog.SearchQuery, error) {
 
 func parseSearchText(v url.Values) (string, error) {
 	text := strings.TrimSpace(v.Get("q"))
+	// PostgreSQL text cannot hold NUL bytes or invalid UTF-8; sending them would fail the query.
+	if !utf8.ValidString(text) || strings.ContainsRune(text, 0) {
+		return "", fmt.Errorf("search text contains characters that cannot be searched")
+	}
 	if utf8.RuneCountInString(text) > maxSearchLength {
 		return "", fmt.Errorf("search text is too long (%d characters max)", maxSearchLength)
 	}

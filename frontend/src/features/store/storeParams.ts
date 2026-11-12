@@ -52,7 +52,8 @@ export function readFilters(params: URLSearchParams): StoreFilters {
   let maxPrice = priceParam(params.get('max_price'))
   if (minPrice && maxPrice && Number(minPrice) > Number(maxPrice)) [minPrice, maxPrice] = [maxPrice, minPrice]
   return {
-    q: (params.get('q') ?? '').trim().slice(0, 100),
+    // Cut by characters, not UTF-16 units, so an emoji is never split in half (and the server counts the same way).
+    q: Array.from((params.get('q') ?? '').trim()).slice(0, 100).join(''),
     platforms: list(params.get('platform')).filter((p) => includes(PLATFORMS, p)),
     regions: list(params.get('region')).filter((r) => includes(REGIONS, r)),
     genres: list(params.get('genre')).filter((g) => GENRE_SLUG.test(g)).slice(0, 20),

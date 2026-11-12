@@ -1,5 +1,45 @@
 import { apiGet } from './client'
-import type { ProductCard } from './types'
+import type { Platform, ProductCard, Region } from './types'
+
+export interface Offer {
+  id: number
+  price_cents: number
+  discount_percent: number
+  /** Keys for sale right now; 0 means sold out. */
+  stock: number
+  seller: { name: string; rating: number; review_count: number }
+}
+
+export interface Edition {
+  slug: string
+  title: string
+  platform: Platform
+  region: Region
+  /** Cheapest offer with stock; null when the edition has nothing to buy. */
+  price_cents: number | null
+  current: boolean
+}
+
+export interface ProductDetail {
+  id: number
+  slug: string
+  title: string
+  description: string
+  cover_url: string
+  banner_url: string
+  platform: Platform
+  region: Region
+  product_type: string
+  msrp_cents: number
+  release_date: string | null
+  genres: { slug: string; name: string }[]
+  editions: Edition[]
+  /** In stock first, cheapest first; sold-out offers last. */
+  offers: Offer[]
+}
+
+export const fetchProduct = (slug: string, signal?: AbortSignal) =>
+  apiGet<ProductDetail>(`/api/products/${encodeURIComponent(slug)}`, signal)
 
 export type SearchSort = 'relevance' | 'best_selling' | 'price_asc' | 'price_desc'
 

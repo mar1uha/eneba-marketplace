@@ -16,6 +16,7 @@ import (
 	"eneba-marketplace/backend/internal/db"
 	"eneba-marketplace/backend/internal/homepage"
 	"eneba-marketplace/backend/internal/httpapi"
+	"eneba-marketplace/backend/internal/orders"
 )
 
 func main() {
@@ -50,6 +51,7 @@ func run() error {
 		Catalog:      store,
 		Homepage:     homepage.NewService(pool, store),
 		Auth:         auth.NewService(pool, auth.LogMailer{}, cfg.AppBaseURL),
+		Orders:       orders.NewService(pool),
 		CookieSecure: cfg.CookieSecure,
 	}
 	if cfg.Google.Enabled() {

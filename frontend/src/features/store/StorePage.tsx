@@ -265,7 +265,7 @@ function GridSkeleton() {
       <span className="visually-hidden">Loading products…</span>
       <div className={styles.grid}>
         {Array.from({ length: 8 }, (_, i) => (
-          <div key={i} className={styles.cardSkeleton} />
+          <div key={i} className={`shimmer ${styles.cardSkeleton}`} />
         ))}
       </div>
     </div>

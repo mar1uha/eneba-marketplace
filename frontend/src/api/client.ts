@@ -33,7 +33,11 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   return data as T
 }
 
-export const apiGet = <T>(path: string, signal?: AbortSignal) => request<T>('GET', path, undefined, signal)
+/** The server's message for a request the user can fix (4xx); otherwise the fallback. */
+export const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof ApiError && error.status < 500 ? error.message : fallback
+
+export const apiGet =<T>(path: string, signal?: AbortSignal) => request<T>('GET', path, undefined, signal)
 
 export const apiSend = <T = void>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown) =>
   request<T>(method, path, body)

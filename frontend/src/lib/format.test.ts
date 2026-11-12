@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { splitDuration } from '../features/home/useCountdown'
+import { splitDuration } from './useCountdown'
 import { formatPrice } from './format'
 
 describe('formatPrice', () => {

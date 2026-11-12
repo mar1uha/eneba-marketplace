@@ -12,7 +12,7 @@ The project is built in five parts. Each part starts with scoping questions, get
 | 2 | Eneba design system and homepage built from backend-driven blocks | Done |
 | 3 | Authentication: email + password, Google sign-in, password reset, account security, protected routes | Done (Google needs OAuth credentials to try live) |
 | 4 | Store catalog with filters, facet counts, sorting, and pages; typo-tolerant search with live suggestions | Done |
-| 5 | Product page with seller offers, cart, simulated checkout, key delivery | Planned |
+| 5 | Product page with seller offers and editions, cart, checkout with key reservation, simulated card payment, key delivery | Done |
 
 ## Tech stack and decisions
 
@@ -66,6 +66,8 @@ eneba-marketplace/
 │       ├── db/               Connection pool and migration runner
 │       │   └── migrations/   Numbered goose SQL migrations, embedded into the binary
 │       ├── homepage/         Loads scheduled blocks and turns each block's config into render-ready data
+│       ├── orders/           Cart, checkout with key reservation, simulated card payment, order history, key reveal
+│       ├── testdb/           Test helper: one migrated schema per test package
 │       └── httpapi/          Router, middleware (session loading, auth guard, CSRF), handlers, JSON helpers
 └── frontend/                 React + TypeScript single-page app
     └── src/
@@ -73,11 +75,14 @@ eneba-marketplace/
         ├── components/       Shared UI: layout (header with search box, browse row, and user menu; footer), forms, ProductCard, button styles, icons
         ├── features/home/    HomePage, BlockRenderer, blocks/ (HeroCarousel, DealBlock, ProductCarousel), useCountdown
         ├── features/store/   StorePage, FilterPanel, Pagination, URL state (storeParams)
+        ├── features/product/ ProductPage: editions, best offer, all seller offers
+        ├── features/cart/    CartPage, guest cart in localStorage, CartSync (merge at sign-in), cart hooks
+        ├── features/checkout/ CheckoutPage: reservation timer, test card form
         ├── features/auth/    Log in, register, forgot/reset password, route guards, auth hooks
-        ├── features/account/ Account layout, security page (profile, password, sessions), orders page
-        ├── lib/              Price, date, and device formatting; enum labels
+        ├── features/account/ Account layout, security page (profile, password, sessions), order list and order page with keys
+        ├── lib/              Price, date, device, and card formatting; enum labels; countdown and debounce hooks
         ├── queryClient.ts    TanStack Query setup, including the global "session ended" (401) handler
-        ├── pages/            Status pages: placeholders for later parts, 404, route error
+        ├── pages/            Status pages: 404 and route error
         ├── styles/           tokens.css (design tokens) and global.css (reset, container, utilities)
         ├── test/             Vitest setup and fixtures
         ├── router.tsx        Route table
@@ -88,8 +93,9 @@ eneba-marketplace/
 
 - `cmd/api` holds only wiring. It builds dependencies and starts the server.
 - `internal/httpapi` holds HTTP concerns: routing, status codes, and JSON output. Handlers are methods on an `API` struct that carries its dependencies.
-- Each domain gets its own package under `internal/` with its SQL and business rules: `auth`, `catalog`, and `homepage` so far, `orders` later. Handlers stay thin.
+- Each domain gets its own package under `internal/` with its SQL and business rules: `auth`, `catalog`, `homepage`, and `orders`. Handlers stay thin.
 - When a browser abandons a request (for example by navigating away), the database call fails with a cancelled context. That is logged as status 499, not as a server error.
+- Input is checked at the HTTP boundary before it reaches SQL: slugs must match the slug format, search text must be valid UTF-8 without NUL bytes (PostgreSQL text can hold neither), and browser-supplied numbers are range-checked.
 - Validation errors name the form field: `{"error": "Use at least 8 characters.", "field": "password"}`. The frontend shows the message under that field.
 - Every error response has the same shape: `{"error": "message"}`.
 - All prices are integer euro cents, to avoid floating-point rounding.
@@ -194,6 +200,45 @@ Guards against loose matches: typo matches must keep the first letter (so `wicht
 
 The product-type filter and the newest and biggest-discount sorts were offered in scoping and not chosen. The seed has only games, so a type filter would have nothing to filter.
 
+## Product page, cart, checkout, and keys
+
+Scope chosen in Part 5: editions with a switcher, a pool of keys per offer, a test-card payment form, quantities per item, a 10-minute reservation timer, and keys hidden until revealed. A simulated order email was offered and not chosen.
+
+### Product page (`/product/:slug`)
+
+- **One product, many offers.** A product is one edition of a game (for example Hades, Steam, Global). Every seller with an active offer is listed with their price, rating, review count, and live stock ("In stock", "Only 2 left", "Sold out"). In-stock offers come first, cheapest first; sold-out offers sit at the bottom with a disabled button.
+- **Best price** is the cheapest offer that has stock. It gets a buy box with Buy now (add and go to the cart) and Add to cart.
+- **Edition switcher.** Editions of the same game (`products.edition_of` points at the main edition) are listed with each edition's lowest price, for example Steam Global €7.79 and Nintendo Europe €8.09.
+- **Stock-aware prices everywhere.** Product cards on the homepage and in the Store use the cheapest offer that can actually be bought, so a sold-out offer never shows as the "from" price.
+
+### Cart
+
+- **Guests** keep their cart in `localStorage`, shared live across tabs. The server prices it (`POST /api/cart/quote`) without storing it.
+- **At sign-in** (log in, register, or the Google redirect) the guest cart merges into the account's cart: quantities add up, capped at 10 per offer, and the browser copy is cleared.
+- **Lines** show the seller, a quantity stepper limited by stock (max 10 keys per offer), the line total, and "Price went up/dropped from €X" when the price changed since the line was added.
+- **Checkout is blocked** while a line is sold out, above the remaining stock, or no longer sold; the line says why.
+
+### Checkout and key reservation
+
+1. **Continue to payment** creates a pending order and reserves the keys for 10 minutes. Each order line copies the current price, so later price changes never alter a placed order.
+2. Keys are reserved with `SELECT … FOR UPDATE SKIP LOCKED`: concurrent checkouts take different keys instead of waiting on each other, so a key is never sold twice and the last key goes to exactly one buyer. If any line lacks stock, nothing is reserved and the API answers 409 with what is still available.
+3. A user has one open checkout: starting a new one closes the previous order and returns its keys. Cart changes and checkouts lock the user's row, so double clicks and several tabs cannot interleave.
+4. **Expiry needs no background job.** A key is for sale when it is `available`, or `reserved` with `reserved_until` in the past; a pending order past `reserved_until` reads as expired. The page shows a countdown on the server's clock and explains when it ran out.
+5. **Cancel and return to cart** releases the keys at once.
+
+### Simulated payment
+
+- Card form with formatting as you type (4-digit groups, MM/YY) and the same checks as the server: Luhn checksum, expiry not in the past, 3-digit CVC. Mistakes show on the field.
+- Only test cards work, as in Stripe's test mode: `4242 4242 4242 4242` and `5555 5555 5555 4444` succeed, `4000 0000 0000 0002` is declined, `4000 0000 0000 9995` has insufficient funds. Any other number is refused, so nobody types a real card into a demo. Only the brand and last 4 digits are stored.
+- **A declined card keeps the reservation**, so the buyer can try another card while the timer runs. (Scoping described a decline as returning the keys; keeping them for a retry matched how real checkouts work, and Cancel or the timer still returns them.)
+- **No double charge.** Paying an already paid order returns it unchanged, and a unique index allows only one successful payment per order. Payment locks the order and its keys first, so a reservation that expired and was taken by someone else fails cleanly with "reservation expired" instead of overselling.
+- On success the keys are marked sold, the bought lines leave the cart, and the buyer lands on the order page.
+
+### Orders and keys
+
+- `/account/orders` lists paid orders and the open checkout; cancelled and expired checkouts are left out because they never took money or delivered keys.
+- The order page shows the card used, each item, and one row per key. Keys are masked (`•••••-•••••-•••••`) until **Reveal key** is clicked; the first reveal time is stored and shown, and a Copy button appears. Other users' orders and keys answer 404.
+
 ## Authentication
 
 ### Sessions
@@ -234,13 +279,9 @@ Two layers: `SameSite=Lax` stops other sites' form posts from carrying the cooki
 
 ### Protected routes
 
-- **API:** `requireUser` middleware returns 401 for `/api/orders` and the account endpoints. Checkout endpoints join this group in Part 5.
-- **Frontend:** `RequireAuth` wraps `/account`, `/account/orders`, and `/checkout`. Guests are sent to `/login?next=<page>` and come back after signing in. `GuestOnly` sends signed-in users away from the log-in and register pages.
+- **API:** `requireUser` middleware returns 401 for the account, cart, checkout, and order endpoints. Pricing a guest's cart (`POST /api/cart/quote`) is public.
+- **Frontend:** `RequireAuth` wraps `/account`, `/account/orders`, `/account/orders/:id`, and `/checkout/:id`. Guests are sent to `/login?next=<page>` and come back after signing in. `GuestOnly` sends signed-in users away from the log-in and register pages.
 - **Session ended elsewhere:** any 401 from the API clears the cached user, so a device that was signed out remotely is sent to log in on its next request.
-
-### Decided for Part 5
-
-Guests may build a cart in the browser; it is merged into the account's server-side cart at sign-in. Checkout requires sign-in.
 
 ### Deliberately left out
 
@@ -254,7 +295,7 @@ Login rate limiting and "remember me" were offered in scoping and not chosen. Wi
 
 ## Data model
 
-Money is stored as integer euro cents. Tables marked *planned* arrive in later parts; each part's scoping questions may still change them.
+Money is stored as integer euro cents.
 
 ```mermaid
 erDiagram
@@ -264,13 +305,15 @@ erDiagram
     genres ||--o{ product_genres : groups
     users ||--o{ sessions : "signed in as"
     users ||--o{ password_reset_tokens : "resets with"
-    users ||--o{ orders : "places (planned)"
-    users ||--o{ cart_items : "has (planned)"
-    offers ||--o{ digital_keys : "stocks (planned)"
-    offers ||--o{ cart_items : "added as (planned)"
-    orders ||--|{ order_items : "contains (planned)"
-    offers ||--o{ order_items : "bought as (planned)"
-    order_items ||--o{ digital_keys : "delivers (planned)"
+    products |o--o{ products : "edition of"
+    users ||--o{ orders : places
+    users ||--o{ cart_items : has
+    offers ||--o{ digital_keys : stocks
+    offers ||--o{ cart_items : "added as"
+    orders ||--|{ order_items : contains
+    orders ||--o{ payments : "paid by"
+    offers ||--o{ order_items : "bought as"
+    order_items ||--o{ digital_keys : "reserves or delivers"
 
     products {
         bigint id PK
@@ -287,6 +330,7 @@ erDiagram
         int sold_count "drives best sellers"
         text search_keywords "aliases such as gta 5, bg3"
         text search_text "generated: normalized title + keywords"
+        bigint edition_of FK "main edition of the same game"
     }
     genres {
         smallint id PK
@@ -346,36 +390,54 @@ erDiagram
     digital_keys {
         bigint id PK
         bigint offer_id FK
-        text code
+        text code UK
         text status "available, reserved, sold"
+        bigint order_item_id FK "holder while reserved or sold"
+        timestamptz reserved_until
+        timestamptz sold_at
+        timestamptz revealed_at "first time the buyer showed it"
     }
     cart_items {
-        bigint user_id FK
-        bigint offer_id FK
-        int quantity
+        bigint user_id PK, FK
+        bigint offer_id PK, FK
+        int quantity "1 to 10"
+        int added_price_cents "for price-change notices"
     }
     orders {
         bigint id PK
         bigint user_id FK
-        text status
+        text status "pending, paid, cancelled, expired"
         int total_cents
+        timestamptz reserved_until
+        timestamptz paid_at
     }
     order_items {
         bigint id PK
         bigint order_id FK
         bigint offer_id FK
-        int unit_price_cents
+        int unit_price_cents "copied at checkout"
+        int quantity
+    }
+    payments {
+        bigint id PK
+        bigint order_id FK
+        int amount_cents
+        text status "succeeded, declined"
+        text decline_code
+        text card_brand
+        text card_last4 "never the full number"
     }
 ```
 
 Key ideas:
 
-- **One product, many offers.** A product (for example "ELDEN RING, Steam, Global") is listed once. Each seller has at most one offer per product (`UNIQUE (product_id, seller_id)`). Cards show the cheapest active offer and the number of offers.
+- **One product, many offers.** A product (for example "ELDEN RING, Steam, Global") is listed once. Each seller has at most one offer per product (`UNIQUE (product_id, seller_id)`). Cards show the cheapest offer that can be bought (active, with a key for sale) and the number of such offers.
+- **Stock is the keys themselves.** There is no stock counter to drift out of sync: an offer's stock is the count of its keys that are for sale. Constraints keep each key state consistent (an available key has no holder; a sold key has `sold_at`; only sold keys can be revealed), and a partial unique index allows one successful payment per order.
 - **Discounts are derived.** The discount is `(msrp - cheapest price) / msrp`, computed on read, so it can never disagree with the prices.
 - **Database constraints guard the data.** `CHECK` constraints limit platforms, regions, and block types to known values, keep prices positive, require a valid slug format, and reject a schedule whose start is after its end. Every user must have a password or a Google link, and emails must be lowercase.
 - **One product per platform and region,** like Eneba: "Hades (Steam, Global)" and "Hades (Nintendo, Europe)" are separate products with separate offers. Console and launcher editions reuse the game's Steam artwork.
 - **Search text is a generated column.** `search_text` is computed by Postgres from the title and `search_keywords`, so it can never go stale when a title changes.
-- **Demo seed data lives in migrations** (`00004`, `00005`, `00008`), so the deployed demo gets the same catalog: 155 products (140 distinct games across all 8 platforms and 4 regions), 15 genres, 6 sellers, and 684 offers (1 to 6 per product). Offer prices are generated deterministically from hashes, at 30–85% of MSRP. A check in `00008` fails the migration if any product is left without a genre.
+- **Demo seed data lives in migrations** (`00004`, `00005`, `00008`, `00010`), so the deployed demo gets the same catalog: 155 products (140 distinct games across all 8 platforms and 4 regions, 15 of them linked as editions), 15 genres, 6 sellers, 684 offers (1 to 6 per product), and 8,406 fake keys. Offer prices are generated deterministically from hashes, at 30–85% of MSRP. 56 offers are sold out and 69 have only 1–3 keys, so those states can be seen; every product keeps at least one offer in stock. Checks in `00008` and `00010` fail the migration if a product is left without a genre or without stock.
 
 ## API
 
@@ -400,7 +462,18 @@ All endpoints live under `/api` and return JSON.
 | GET | `/api/auth/sessions` (auth) | Active sessions, with `current: true` on this device. | Part 3 |
 | DELETE | `/api/auth/sessions/{id}` (auth) | Signs out one of your sessions. 404 for other users' sessions. | Part 3 |
 | POST | `/api/auth/sessions/revoke-others` (auth) | Signs out every other session. `{"revoked": n}`. | Part 3 |
-| GET | `/api/orders` (auth) | `{"orders": []}`; filled by checkout in Part 5. | Part 3 |
+| GET | `/api/products/{slug}` | Product page: details, genres, `editions` with their lowest prices, and every active offer with seller and `stock`. 404 for an unknown slug. | Part 5 |
+| POST | `/api/cart/quote` | `{items: [{offer_id, quantity, added_price_cents}]}` → the guest's cart priced with current prices and stock, without storing it. | Part 5 |
+| GET | `/api/cart` (auth) | `{lines, item_count, total_cents}`; each line has current and added price, stock, and `available`. | Part 5 |
+| POST | `/api/cart/items` (auth) | `{offer_id, quantity}` → adds to the line. 409 with `problems` past stock, 409 past 10 per offer or 20 lines, 404 for an inactive offer. | Part 5 |
+| PUT / DELETE | `/api/cart/items/{offerID}` (auth) | Set a line's quantity (1–10, within stock) or remove it. | Part 5 |
+| POST | `/api/cart/merge` (auth) | Merges a guest cart into the account (used right after sign-in). | Part 5 |
+| POST | `/api/checkout` (auth) | Cart → pending order with keys reserved for 10 minutes. 201 with the order and `server_time`; 409 `insufficient_stock` with `problems` if anything is short (nothing reserved). | Part 5 |
+| GET | `/api/orders` (auth) | Paid orders and the open checkout, newest first. | Part 3, filled in Part 5 |
+| GET | `/api/orders/{id}` (auth) | One of your orders with items, the card used, and keys (codes `null` until revealed). 404 for other users' orders. | Part 5 |
+| POST | `/api/orders/{id}/pay` (auth) | `{name, number, expiry, cvc}` with a test card. 200 paid (repeat calls are harmless), 402 declined with `code`, 400 with `field` for form mistakes, 409 `reservation_expired` or `order_closed`. | Part 5 |
+| POST | `/api/orders/{id}/cancel` (auth) | Cancels an unpaid order and returns its keys. | Part 5 |
+| POST | `/api/orders/{id}/keys/{keyID}/reveal` (auth) | Returns the key's code and records the first reveal. | Part 5 |
 
 (auth) = requires a session; returns 401 otherwise. Unknown paths return HTTP 404 with `{"error":"not found"}`.
 
@@ -513,9 +586,11 @@ Open `http://localhost:5173`.
 cd backend
 go vet ./...
 go test ./...             # integration tests need TEST_DATABASE_URL (read from backend/.env); they are skipped without it
+                          # each test package migrates its own schema (test_catalog, test_orders, ...) via internal/testdb,
+                          # so packages run in parallel without seeing each other's fixtures
 
 cd frontend
-npm test                  # Vitest + Testing Library
+npm test                  # Vitest + Testing Library, run in America/Los_Angeles to catch time-zone bugs
 npm run lint
 npm run build             # type-checks, then builds
 ```
@@ -551,6 +626,20 @@ What the tests cover:
   - Sorting; price validation; pagination links keep filters; "did you mean"; clearing filters that hide everything; a rejected link; retry after a server error.
   - Header search: suggestions are debounced (no request for 1 letter), arrow keys and Enter open a product, Enter alone opens the Store, Escape closes, and "did you mean" appears in the dropdown.
 - **Store browser end-to-end** (headless Chrome, real backend, 36 checks): typo suggestions and keyboard selection, search from another page, did you mean, browse links, genre and price filters (counts match facets, scroll position kept), Back undoes a filter, price sort, 7 pages that continue the sort with no overlap, Back between pages, no broken cover images, and the mobile filter panel and suggestions with no horizontal scroll. All 140 Steam app IDs were also checked against Steam's own names for each title.
+- **Cart, checkout, and payment backend tests** (real Postgres; every test makes its own product, offers, keys, and users, so the seeded stock is never touched):
+  - Cart rules: adding on top of a line, the stock limit, the 10-per-offer limit, unknown and withdrawn offers, setting and removing lines, and price-change data.
+  - Guest carts: pricing without storing; merging adds quantities up to the cap, drops unknown offers, and keeps the guest's added price.
+  - Checkout reserves keys for 10 minutes; a declined card keeps them reserved; payment sells exactly the reserved keys, empties the cart, and hides codes; paying twice records one payment; later price changes don't alter the order.
+  - Not enough stock reserves nothing and creates no order. **Eight buyers racing for one key: exactly one wins.** A new checkout replaces the open one.
+  - An expired reservation returns its keys; if someone else buys them, the late payment fails instead of overselling. Cancel returns keys and is idempotent; paid orders can't be cancelled.
+  - Revealing a key records the first reveal only; unpaid keys can't be revealed; other users get 404 for orders, keys, and payment. Order history shows paid and open orders only.
+  - Card checks: Luhn, real-looking non-test numbers, expiry month edge, CVC, and decline codes. Product detail: editions, offer order, and stock counts. Cards and search list only products that can be bought, including a key whose reservation ran out.
+  - HTTP: the whole flow through the real router, with status codes, error shapes, CSRF blocking, and privacy.
+- **Cart, checkout, and payment frontend tests:** product page (editions, offer order, sold-out button, stock-limited adding, Buy now), guest cart priced by the server, merge at log in, quantity stepper, price-change notice, blocked checkout, sold-out-during-checkout refresh, client-side card validation, decline then success, revealed key, expired reservation, order list, and card formatting helpers.
+- **Regression tests for bugs found in review and by fuzzing** (each failed before its fix):
+  - Backend (`httpapi/regressions_test.go`): a script sent malformed input to every endpoint and found 500s. A NUL byte in a product URL or search text, invalid UTF-8 in search text, and a huge browser-supplied "price when added" in a guest cart (overflowing the `int` column) each crashed a handler. They now get a 404/400, or the price is ignored.
+  - Frontend (`src/regressions.test.tsx`): release dates showed a day early west of UTC; the card expiry turned "1/30" into "13/0"; a network failure on the order page said "This order does not exist"; a failed cancel was silent; and a shared Store link with an emoji at the 100th character split it in half, which crashed the page with "URI malformed" while building pagination links.
+- **Purchase journey in the browser** (headless Chrome, real backend, 27 checks): search → product → edition switch → guest cart → register → merged cart → checkout → empty form → declined card → paid → hidden keys → reveal (matches the database) → reload → repeated payment request charges nothing → order history → stock went down → expired reservation → cancel → mobile product and cart pages. The run caught a product cover stretched by its height attribute, and two accessibility issues: edition links read as "Europe€8.09", and two offers of the same game in the cart had identical button labels.
 - **Browser end-to-end** (headless Chrome, real backend, 20 checks): the full register → second device → sign out others → change password → header sign-out → forgot password → reset link from the server log → reuse refused → old password rejected flow. It also checks the cookie flags as seen by the browser and the mobile layout. This run caught a sign-out redirect race that jsdom tests could not reproduce.
 
 ## Configuration

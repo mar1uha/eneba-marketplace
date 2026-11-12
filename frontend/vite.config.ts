@@ -11,5 +11,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Run west of UTC: a date-only value like "2020-09-17" read as UTC midnight shows a day early there.
+    env: { TZ: 'America/Los_Angeles' },
   },
 })

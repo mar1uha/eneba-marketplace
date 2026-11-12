@@ -370,3 +370,126 @@ Part 4 built and tested. Not committed yet.
 **Docs.** README gained a "Store and search" section (URL state, filters and facets, matching rules with examples, ranking, did you mean, performance, items left out), plus updates to the data model, API table, example response, prerequisites, and test coverage.
 
 Should I commit Part 4? After you review it, I will ask the Part 5 questions (product page, cart, checkout).
+
+---
+
+## Turn 9
+
+### Prompt
+
+commit and make part 5
+
+### Response
+
+Part 4 committed: `720dd74 Add store catalog with filters, facets, and typo-tolerant search (Part 4)` (35 files; `.env` excluded).
+
+Part 5 defaults unless you object:
+- Product page `/product/:slug`: artwork, title, platform, region, genres, release date, description, and every active seller offer sorted by price (seller name, rating, review count); the cheapest is marked "Best price".
+- Cart: guests keep the cart in the browser; it merges into the account at sign-in (decided in Part 3). Checkout requires sign-in.
+- Checkout re-checks prices and stock on the server and copies each price into the order, so later price changes never alter it.
+- The Orders page lists orders with their keys.
+
+Part 5 scoping questions (asked via question dialog):
+1. **Offer model**: editions + a switcher between editions of the same game (recommended); editions only; or a new game level with editions inside.
+2. **Keys and stock**: a pool of pre-generated keys per offer, reserved atomically at checkout (recommended); or a key generated at purchase with unlimited stock.
+3. **Payment**: a test card form like Stripe's test mode (recommended); a one-click pay button; or a demo wallet balance.
+4. **Extras** (multi-select): quantity per item, a 10-minute reservation timer, a simulated order email, keys hidden until clicked.
+
+### Answers (question dialog)
+
+- Offer model: **Editions + switcher**
+- Keys and stock: **Key pool per offer**
+- Payment: **Test card form**
+- Extras: **Quantity per item, Keys hidden until clicked, Reservation timer** (simulated email left out)
+
+### Response (after answers)
+
+Part 5 built and tested. Not committed yet. All five parts are now built.
+
+**Data.**
+- Migration `00009`: `products.edition_of` (links editions of one game), `cart_items` (with the price when added), `orders` (pending/paid/cancelled/expired, `reserved_until`), `order_items` (price copied at checkout), `digital_keys` (available/reserved/sold, holder, reservation end, reveal time), and `payments` (brand and last 4 digits only). Constraints keep key states consistent, and a partial unique index allows one successful payment per order.
+- Migration `00010`: 15 linked editions and 8,406 fake keys. 56 offers are sold out and 69 have 1–3 keys so those states show; every product keeps stock. The migration fails if any product would be left without stock.
+- There is no stock counter: an offer's stock is its keys for sale. A key is for sale when available, or reserved with an expired reservation, so expiry needs no background job.
+
+**Behavior change across the app.** Product cards (homepage, Store, search) now use the cheapest offer that can actually be bought, so a sold-out offer never sets the "from" price. The homepage and catalog tests were updated to the new rule, and a test now covers a reserved key coming back on sale.
+
+**Backend** (new `internal/orders` package).
+- Product detail with editions and per-offer live stock.
+- Cart: add, set quantity, remove (stock and 10-per-offer limits), price a guest cart without storing it, and merge at sign-in. Cart changes and checkout lock the user's row, so double clicks and several tabs can't interleave.
+- Checkout reserves keys for 10 minutes with `FOR UPDATE SKIP LOCKED`: concurrent buyers never wait on each other or get the same key. Any shortage rolls everything back and reports what is available. A new checkout closes the previous open one.
+- Payment: test cards only (4242… succeeds, 4000…0002 declined, 4000…9995 insufficient funds); other numbers are refused so nobody types a real card. It locks the order and its keys first. Paying twice changes nothing, and a reservation lost to another buyer fails cleanly instead of overselling.
+- A declined card keeps the reservation so the buyer can retry until the timer ends. This differs from the scoping text, which said a decline returns the keys; Cancel or the timer still returns them.
+- Orders: history (paid and open only), detail, cancel, and key reveal (records the first reveal). Other users get 404.
+
+**Frontend.**
+- Product page: blurred banner hero, cover, platform/region, genres, edition switcher, best-price buy box (Buy now / Add to cart), and all offers with stock labels.
+- Cart: guest cart in localStorage (live across tabs), merged at log in, register, or after the Google redirect. Quantity stepper, price-change notices, and blocking problems on each line. Header badge with the item count.
+- Checkout page: countdown on the server clock, test-card form (formatting as you type, same checks as the server), decline message, cancel.
+- Order list and order page: masked keys, Reveal, Copy, and when each key was revealed.
+
+**Tests.**
+- Go: 11 order tests (including 8 buyers racing for 1 key: exactly one wins; expiry plus resale; double payment), an HTTP flow test, a product detail test, and the stock-aware listing test. All packages pass 3 runs in a row.
+- Vitest: 50 tests (12 new).
+- Browser (headless Chrome, real backend): 27-check purchase journey, all passing; the Part 4 store suite (36 checks) still passes.
+
+**Bugs found and fixed during testing.**
+- The checkout page's "already paid" redirect raced the post-payment navigation and dropped the success message (React Router applies navigations in a transition). Both now go to the same URL.
+- The product cover was stretched to 900px tall by its height attribute.
+- Accessibility: edition links read as "Europe€8.09" (missing space), and two offers of the same game in the cart had identical button labels (now include the seller).
+- An auth test looked for "the list" on the account page; the header's new browse row made that ambiguous. It now looks inside the sessions section.
+
+**Housekeeping.** The browser runs delete their test accounts; the 4 keys those accounts bought were returned to stock in the local dev database.
+
+**Docs.** README gained a "Product page, cart, checkout, and keys" section, the real data model (all former "planned" tables), 12 new API rows, and test coverage.
+
+Should I commit Part 5?
+
+---
+
+## Turn 10
+
+### Prompt
+
+if there is any surplus code, fix it (if 200 lines of code could be 50, rewrite them) write a test that reproduces all sorts of bugs, then write for them to pass, and after all that commit part 5 and deploy a public URL
+
+### Response
+
+**1. Surplus code removed.** Four reviewers (reuse, simplification, efficiency, root-cause depth) went over the uncommitted Part 5 code; their findings were applied:
+- Backend:
+  - One generic `respond` helper replaces two response wrappers and their closures, with `userID(r)` and `quantityOK` helpers.
+  - The "keys for sale" count subquery, previously pasted in 4 places, is now one `catalog.StockOf`.
+  - Pay and Cancel share `lockOrder`.
+- Fewer database round trips:
+  - Checkout makes one round trip for all cart lines instead of up to 40, because each line's order item and key reservation became a single statement sent in one batch.
+  - Merge, the payment's final writes, the product page, and the order page are each one batch.
+- Root-cause fix for the test suite: every test package now gets its own database schema through a new `internal/testdb` helper. This replaces four copies of connection setup and removes the earlier workaround (filtering by genre to dodge another package's fixtures).
+- Frontend:
+  - One `AddToCart` component replaces two near-copies and the "compact" mode.
+  - One server-cart query instead of two; one `ProductRef` type; one `errorMessage` helper instead of four hand-rolled ones.
+  - `StatusPage` now takes an action and is reused for "product not found" and "checkout ended", removing duplicate page CSS.
+  - A global `.shimmer` replaces three copies of the loading pulse.
+  - The two tiny order modules were merged; the key row is a single layout.
+- Skipped: no longer storing the "expired" status (it would change what a second payment attempt answers) and merging two tiny queries in Pay.
+
+**2. Tests that reproduce bugs, then fixes.**
+- A fuzz script sent malformed and extreme input to every endpoint and found 7 server errors (500s):
+  - a NUL byte in a product URL;
+  - a NUL byte in store search text and in the suggestions endpoint;
+  - invalid UTF-8 in search text, in both endpoints;
+  - a huge browser-supplied "price when added" in a guest-cart quote and in a merge (it overflowed the `int` column).
+- Review found 5 frontend bugs:
+  - release dates a day early west of UTC;
+  - the card expiry turning "1/30" into "13/0";
+  - "This order does not exist" shown on a network failure;
+  - a silent failure when cancelling a checkout;
+  - a Store page crash ("URI malformed") when a shared link's search text had an emoji at the 100-character cut.
+- `backend/internal/httpapi/regressions_test.go` (8 cases) and `frontend/src/regressions.test.tsx` (5 tests) reproduced every one and failed before the fixes. Vitest now runs in America/Los_Angeles so time-zone bugs show up on this UTC+2 machine. It was confirmed that the date test fails again when the old formatter is swapped back in.
+- Fixes:
+  - Slugs and search text are validated at the HTTP boundary.
+  - Implausible "price when added" values are ignored.
+  - `formatDay` formats calendar dates in UTC.
+  - The expiry field pads one-digit months.
+  - The order page treats only a 404 as missing.
+  - Cancel errors are shown.
+  - Store search text is cut by characters, matching the server.
+- After the fixes: all Go packages pass; Vitest 55/55; lint and type-check clean; the fuzz run finds 0 server errors; browser suites 27/27 (purchase journey) and 36/36 (store). Keys used by the browser runs were returned to stock in the local database.

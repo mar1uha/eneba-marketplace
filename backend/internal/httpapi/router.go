@@ -11,6 +11,7 @@ import (
 	"eneba-marketplace/backend/internal/auth"
 	"eneba-marketplace/backend/internal/catalog"
 	"eneba-marketplace/backend/internal/homepage"
+	"eneba-marketplace/backend/internal/orders"
 )
 
 type API struct {
@@ -18,6 +19,7 @@ type API struct {
 	Catalog  *catalog.Store
 	Homepage *homepage.Service
 	Auth     *auth.Service
+	Orders   *orders.Service
 	// Google is nil when Google sign-in is not configured.
 	Google       *auth.GoogleOAuth
 	CookieSecure bool
@@ -40,7 +42,9 @@ func NewRouter(api *API, corsOrigins []string) http.Handler {
 		r.Get("/health", api.health)
 		r.Get("/homepage", api.homepage)
 		r.Get("/products", api.listProducts)
+		r.Get("/products/{slug}", api.productDetail)
 		r.Get("/search/suggestions", api.searchSuggestions)
+		r.Post("/cart/quote", api.quoteCart)
 
 		r.Route("/auth", func(r chi.Router) {
 			r.Use(api.loadSession)
@@ -65,7 +69,17 @@ func NewRouter(api *API, corsOrigins []string) http.Handler {
 
 		r.Group(func(r chi.Router) {
 			r.Use(api.loadSession, requireUser)
+			r.Get("/cart", api.getCart)
+			r.Post("/cart/items", api.addCartItem)
+			r.Put("/cart/items/{offerID}", api.setCartItem)
+			r.Delete("/cart/items/{offerID}", api.removeCartItem)
+			r.Post("/cart/merge", api.mergeCart)
+			r.Post("/checkout", api.checkout)
 			r.Get("/orders", api.listOrders)
+			r.Get("/orders/{orderID}", api.getOrder)
+			r.Post("/orders/{orderID}/pay", api.payOrder)
+			r.Post("/orders/{orderID}/cancel", api.cancelOrder)
+			r.Post("/orders/{orderID}/keys/{keyID}/reveal", api.revealKey)
 		})
 	})
 

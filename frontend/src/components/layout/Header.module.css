@@ -92,8 +92,25 @@
 }
 
 .iconLink {
+  position: relative;
   display: inline-flex;
   padding: var(--space-1);
+}
+
+.cartBadge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  line-height: 1;
 }
 
 .account {

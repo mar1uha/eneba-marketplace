@@ -48,13 +48,13 @@ function HomeSkeleton() {
   return (
     <div aria-busy="true" data-testid="home-skeleton">
       <span className="visually-hidden">Loading homepage…</span>
-      <div className={`${styles.shimmer} ${styles.heroSkeleton}`} />
+      <div className={`shimmer ${styles.heroSkeleton}`} />
       {[0, 1].map((row) => (
         <div key={row} className={`container ${styles.rowSkeleton}`}>
-          <div className={`${styles.shimmer} ${styles.titleSkeleton}`} />
+          <div className={`shimmer ${styles.titleSkeleton}`} />
           <div className={styles.cardsSkeleton}>
             {Array.from({ length: 6 }, (_, i) => (
-              <div key={i} className={`${styles.shimmer} ${styles.cardSkeleton}`} />
+              <div key={i} className={`shimmer ${styles.cardSkeleton}`} />
             ))}
           </div>
         </div>

@@ -2,34 +2,19 @@ package catalog
 
 import (
 	"context"
-	"os"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 
-	"eneba-marketplace/backend/internal/db"
+	"eneba-marketplace/backend/internal/testdb"
 )
 
-// These tests run against the seeded demo catalog (migrations 00004 and 00008).
+// These tests run against the seeded demo catalog (migrations 00004, 00008, and 00010).
 func testStore(t *testing.T) (*Store, *pgxpool.Pool) {
-	t.Helper()
-	_ = godotenv.Load("../../.env")
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
-	ctx := context.Background()
-	pool, err := db.Connect(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
+	pool := testdb.Pool(t, "catalog")
 	return NewStore(pool), pool
 }
 
@@ -243,7 +228,7 @@ func TestSearchSortsAndPaginates(t *testing.T) {
 	}
 }
 
-func TestSearchSkipsProductsWithoutActiveOffers(t *testing.T) {
+func TestSearchListsOnlyProductsThatCanBeBought(t *testing.T) {
 	s, pool := testStore(t)
 	ctx := context.Background()
 	var productID int64
@@ -266,10 +251,71 @@ func TestSearchSkipsProductsWithoutActiveOffers(t *testing.T) {
 	if res := search(t, s, SearchQuery{Text: "zzyzx"}); res.Total != 0 {
 		t.Errorf("product with only an inactive offer was listed")
 	}
-	if _, err := pool.Exec(ctx, `UPDATE offers SET is_active = true WHERE product_id = $1`, productID); err != nil {
+	exec := func(sql string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, productID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`UPDATE offers SET is_active = true WHERE product_id = $1`)
+	if res := search(t, s, SearchQuery{Text: "zzyzx"}); res.Total != 0 {
+		t.Errorf("product with an active offer but no keys was listed")
+	}
+	exec(`INSERT INTO digital_keys (offer_id, code) SELECT id, 'ZZYZX-' || id FROM offers WHERE product_id = $1`)
+	if res := search(t, s, SearchQuery{Text: "zzyzx"}); res.Total != 1 {
+		t.Errorf("product with an active offer in stock: total %d, want 1", res.Total)
+	}
+	exec(`UPDATE digital_keys SET status = 'reserved', reserved_until = now() + interval '5 minutes'
+	      WHERE offer_id IN (SELECT id FROM offers WHERE product_id = $1)`)
+	if res := search(t, s, SearchQuery{Text: "zzyzx"}); res.Total != 0 {
+		t.Errorf("product whose only key is reserved was listed")
+	}
+	exec(`UPDATE digital_keys SET reserved_until = now() - interval '1 second'
+	      WHERE offer_id IN (SELECT id FROM offers WHERE product_id = $1)`)
+	if res := search(t, s, SearchQuery{Text: "zzyzx"}); res.Total != 1 {
+		t.Errorf("a key whose reservation ran out is for sale again: total %d, want 1", res.Total)
+	}
+}
+
+func TestProductDetail(t *testing.T) {
+	s, pool := testStore(t)
+	ctx := context.Background()
+
+	hades, err := s.Product(ctx, "hades")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if res := search(t, s, SearchQuery{Text: "zzyzx"}); res.Total != 1 {
-		t.Errorf("product with an active offer: total %d, want 1", res.Total)
+	if len(hades.Editions) != 2 || hades.Editions[0].Slug != "hades" || !hades.Editions[0].Current ||
+		hades.Editions[1].Slug != "hades-nintendo" || hades.Editions[1].PriceCents == nil {
+		t.Errorf("editions: %+v", hades.Editions)
+	}
+	nintendo, _ := s.Product(ctx, "hades-nintendo")
+	if len(nintendo.Editions) != 2 || !nintendo.Editions[1].Current {
+		t.Errorf("an edition lists its siblings too: %+v", nintendo.Editions)
+	}
+	if len(hades.Genres) == 0 || hades.Description == "" || hades.ReleaseDate == nil || *hades.ReleaseDate != "2020-09-17" {
+		t.Errorf("details: %+v", hades)
+	}
+
+	// Offers: in stock first, cheapest first; sold-out offers last.
+	soldOutSeen := false
+	for i, o := range hades.Offers {
+		if o.Stock == 0 {
+			soldOutSeen = true
+		} else if soldOutSeen {
+			t.Errorf("in-stock offer %d listed after a sold-out one", o.ID)
+		}
+		if i > 0 && o.Stock > 0 && hades.Offers[i-1].Stock > 0 && o.PriceCents < hades.Offers[i-1].PriceCents {
+			t.Errorf("offers not sorted by price: %+v", hades.Offers)
+		}
+		var want int
+		_ = pool.QueryRow(ctx, `SELECT count(*) FROM digital_keys k WHERE k.offer_id = $1 AND `+KeyForSale, o.ID).Scan(&want)
+		if o.Stock != want || o.Seller.Name == "" {
+			t.Errorf("offer %d: stock %d, want %d; seller %q", o.ID, o.Stock, want, o.Seller.Name)
+		}
+	}
+
+	if _, err := s.Product(ctx, "no-such-game"); !errors.Is(err, ErrProductNotFound) {
+		t.Errorf("unknown slug: %v", err)
 	}
 }

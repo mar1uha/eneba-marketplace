@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import type { DealBlock as Deal } from '../../../api/homepage'
 import button from '../../../components/Button.module.css'
 import { formatPrice, platformLabels, regionLabels } from '../../../lib/format'
-import { splitDuration, useCountdown } from '../useCountdown'
+import { splitDuration, useCountdown } from '../../../lib/useCountdown'
 import styles from './DealBlock.module.css'
 
 interface Props {

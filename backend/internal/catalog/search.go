@@ -128,12 +128,7 @@ base AS (
                WHEN strpos(' ' || p.search_text, ' ' || search.text) > 0 THEN 2
                ELSE 0
            END + word_similarity(search.text, p.search_text) AS rank
-    FROM products p
-    JOIN LATERAL (
-        SELECT min(price_cents)::int AS price_cents, count(*)::int AS offer_count
-        FROM offers
-        WHERE product_id = p.id AND is_active
-    ) o ON o.offer_count > 0
+    FROM products p` + cheapestOffer + `
     CROSS JOIN search
     LEFT JOIN token_hits th ON th.id = p.id
     WHERE th.hits = (SELECT count(*) FROM search_tokens)
@@ -145,12 +140,7 @@ const browseCTE = `
 WITH base AS (
     SELECT p.id, p.slug, p.title, p.cover_url, p.banner_url, p.platform, p.region, p.product_type,
            p.msrp_cents, o.price_cents, o.offer_count, p.sold_count, 0::float8 AS rank
-    FROM products p
-    JOIN LATERAL (
-        SELECT min(price_cents)::int AS price_cents, count(*)::int AS offer_count
-        FROM offers
-        WHERE product_id = p.id AND is_active
-    ) o ON o.offer_count > 0
+    FROM products p` + cheapestOffer + `
 )`
 
 // didYouMeanSQL suggests the product matching the most query tokens (at least half), but only when the
@@ -161,7 +151,7 @@ FROM products p
 JOIN token_hits th ON th.id = p.id
 CROSS JOIN search
 WHERE NOT EXISTS (SELECT 1 FROM base)
-  AND EXISTS (SELECT 1 FROM offers o WHERE o.product_id = p.id AND o.is_active)
+  AND EXISTS (SELECT 1 FROM offers ofr WHERE ofr.product_id = p.id AND ` + purchasable + `)
   AND th.hits * 2 >= (SELECT count(*) FROM search_tokens)
 ORDER BY th.hits DESC, word_similarity(search.text, p.search_text) DESC, p.sold_count DESC, p.id
 LIMIT 1`

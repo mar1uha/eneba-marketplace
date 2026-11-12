@@ -4,6 +4,15 @@ export type Platform = (typeof PLATFORMS)[number]
 export const REGIONS = ['global', 'europe', 'north_america', 'united_kingdom'] as const
 export type Region = (typeof REGIONS)[number]
 
+/** The product fields a cart line or order item shows. */
+export interface ProductRef {
+  slug: string
+  title: string
+  cover_url: string
+  platform: Platform
+  region: Region
+}
+
 export interface ProductCard {
   id: number
   slug: string

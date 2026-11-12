@@ -11,19 +11,18 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 
 	"eneba-marketplace/backend/internal/auth"
 	"eneba-marketplace/backend/internal/catalog"
-	"eneba-marketplace/backend/internal/db"
 	"eneba-marketplace/backend/internal/homepage"
+	"eneba-marketplace/backend/internal/orders"
+	"eneba-marketplace/backend/internal/testdb"
 )
 
 const testOrigin = "http://app.test"
@@ -101,26 +100,13 @@ type testEnv struct {
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
-	_ = godotenv.Load("../../.env")
-	dbURL := os.Getenv("TEST_DATABASE_URL")
-	if dbURL == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
-	ctx := context.Background()
-	pool, err := db.Connect(ctx, dbURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-
+	pool := testdb.Pool(t, "httpapi")
 	env := &testEnv{t: t, pool: pool, mailer: &captureMailer{links: map[string]string{}}, google: newFakeGoogle(t)}
 	store := catalog.NewStore(pool)
 	api := &API{
 		DB:       pool,
 		Catalog:  store,
+		Orders:   orders.NewService(pool),
 		Homepage: homepage.NewService(pool, store),
 		Auth:     auth.NewService(pool, env.mailer, testOrigin),
 		Google: auth.NewGoogleOAuth("test-client", "test-secret", testOrigin+"/api/auth/google/callback", auth.GoogleEndpoints{

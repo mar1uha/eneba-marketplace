@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router'
 import type { User } from '../../api/auth'
 import type { Platform } from '../../api/types'
 import { useMe, useSignOut } from '../../features/auth/useAuth'
+import { useCartCount } from '../../features/cart/useCart'
 import { platformLabels } from '../../lib/format'
 import { CartIcon, UserIcon } from '../icons'
 import { SearchBox } from './SearchBox'
@@ -26,14 +27,26 @@ export function Header() {
         <SearchBox className={styles.search} />
 
         <nav className={styles.actions} aria-label="Account">
-          <Link to="/cart" className={styles.iconLink} aria-label="Cart">
-            <CartIcon />
-          </Link>
+          <CartLink />
           <AccountEntry />
         </nav>
       </div>
       <BrowseNav />
     </header>
+  )
+}
+
+function CartLink() {
+  const count = useCartCount()
+  return (
+    <Link to="/cart" className={styles.iconLink} aria-label={count ? `Cart, ${count} ${count === 1 ? 'item' : 'items'}` : 'Cart'}>
+      <CartIcon />
+      {count > 0 && (
+        <span className={styles.cartBadge} aria-hidden="true">
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </Link>
   )
 }
 

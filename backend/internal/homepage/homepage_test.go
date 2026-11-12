@@ -2,15 +2,13 @@ package homepage
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 
 	"eneba-marketplace/backend/internal/catalog"
-	"eneba-marketplace/backend/internal/db"
+	"eneba-marketplace/backend/internal/testdb"
 )
 
 func TestDailySlot(t *testing.T) {
@@ -34,21 +32,7 @@ func TestDailySlot(t *testing.T) {
 }
 
 func testService(t *testing.T) (*Service, *pgxpool.Pool) {
-	t.Helper()
-	_ = godotenv.Load("../../.env")
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
-	ctx := context.Background()
-	pool, err := db.Connect(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
+	pool := testdb.Pool(t, "homepage")
 	return NewService(pool, catalog.NewStore(pool)), pool
 }
 
@@ -86,7 +70,11 @@ func TestPageSeeded(t *testing.T) {
 		case CarouselData:
 			for _, p := range data.Products {
 				var minPrice int
-				err := pool.QueryRow(ctx, "SELECT min(price_cents) FROM offers WHERE product_id = $1 AND is_active", p.ID).Scan(&minPrice)
+				// The card shows the cheapest offer that can be bought: active and with a key for sale.
+				err := pool.QueryRow(ctx, `
+					SELECT min(price_cents) FROM offers o
+					WHERE o.product_id = $1 AND o.is_active
+					  AND EXISTS (SELECT 1 FROM digital_keys k WHERE k.offer_id = o.id AND `+catalog.KeyForSale+`)`, p.ID).Scan(&minPrice)
 				if err != nil {
 					t.Fatal(err)
 				}

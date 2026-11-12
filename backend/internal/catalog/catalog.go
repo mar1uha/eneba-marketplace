@@ -32,16 +32,31 @@ const (
 	SortDiscount    Sort = "discount"
 )
 
-// Products without an active offer cannot be bought, so the lateral join drops them.
+// KeyForSale matches digital_keys rows (alias k) that can be sold: available, or held by a checkout
+// whose reservation has run out.
+const KeyForSale = `(k.status = 'available' OR (k.status = 'reserved' AND k.reserved_until < now()))`
+
+// StockOf is SQL for the number of keys for sale for the offer whose id is the column offerCol.
+func StockOf(offerCol string) string {
+	return `(SELECT count(*)::int FROM digital_keys k WHERE k.offer_id = ` + offerCol + ` AND ` + KeyForSale + `)`
+}
+
+// purchasable matches offers (alias ofr) that can be bought now: active and with a key for sale.
+const purchasable = `ofr.is_active AND EXISTS (SELECT 1 FROM digital_keys k WHERE k.offer_id = ofr.id AND ` + KeyForSale + `)`
+
+// cheapestOffer joins products (alias p) to their purchasable offers as o.price_cents (cheapest) and
+// o.offer_count. Products with nothing to buy are dropped.
+const cheapestOffer = `
+JOIN LATERAL (
+    SELECT min(ofr.price_cents)::int AS price_cents, count(*)::int AS offer_count
+    FROM offers ofr
+    WHERE ofr.product_id = p.id AND ` + purchasable + `
+) o ON o.offer_count > 0`
+
 const cardSelect = `
 SELECT p.id, p.slug, p.title, p.cover_url, p.banner_url, p.platform, p.region, p.product_type,
        p.msrp_cents, o.price_cents, o.offer_count
-FROM products p
-JOIN LATERAL (
-    SELECT min(price_cents)::int AS price_cents, count(*)::int AS offer_count
-    FROM offers
-    WHERE product_id = p.id AND is_active
-) o ON o.offer_count > 0`
+FROM products p` + cheapestOffer
 
 var sortClauses = map[Sort]struct{ where, orderBy string }{
 	SortBestSelling: {"", "p.sold_count DESC, p.id"},

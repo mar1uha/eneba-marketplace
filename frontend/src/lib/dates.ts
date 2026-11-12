@@ -3,6 +3,11 @@ const relativeFormat = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
 
 export const formatDate = (iso: string) => dateFormat.format(new Date(iso))
 
+const dayFormat = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'UTC' })
+
+/** A calendar date with no time, such as a release date ("2020-09-17"): the same day in every time zone. */
+export const formatDay = (isoDate: string) => dayFormat.format(new Date(`${isoDate}T00:00:00Z`))
+
 const steps: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ['year', 365 * 24 * 3600],
   ['month', 30 * 24 * 3600],

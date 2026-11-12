@@ -252,15 +252,6 @@
 
 .cardSkeleton {
   aspect-ratio: 5 / 9.4;
-  background: var(--color-accent);
-  opacity: 0.45;
-  animation: pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.2;
-  }
 }
 
 .message {

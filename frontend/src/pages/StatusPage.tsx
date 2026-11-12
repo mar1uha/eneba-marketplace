@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import button from '../components/Button.module.css'
 import styles from './StatusPage.module.css'
@@ -5,23 +6,24 @@ import styles from './StatusPage.module.css'
 interface Props {
   title: string
   message: string
+  /** Defaults to a link back to the homepage. */
+  action?: ReactNode
+  role?: 'alert' | 'status'
 }
 
-function StatusPage({ title, message }: Props) {
+export function StatusPage({ title, message, action, role }: Props) {
   return (
-    <section className={`container ${styles.page}`}>
+    <section className={`container ${styles.page}`} role={role}>
       <title>{`${title} · Eneba Marketplace`}</title>
       <h1 className={styles.title}>{title}</h1>
       <p className={styles.text}>{message}</p>
-      <Link to="/" className={`${button.button} ${button.primary}`}>
-        Back to homepage
-      </Link>
+      {action ?? (
+        <Link to="/" className={`${button.button} ${button.primary}`}>
+          Back to homepage
+        </Link>
+      )}
     </section>
   )
-}
-
-export function ComingSoon({ feature, part }: { feature: string; part: number }) {
-  return <StatusPage title={feature} message={`This page is built in Part ${part} of the assignment.`} />
 }
 
 export function NotFound() {

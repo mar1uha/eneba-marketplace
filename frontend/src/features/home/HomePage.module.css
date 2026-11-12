@@ -11,12 +11,6 @@
   font-weight: 700;
 }
 
-.shimmer {
-  background: var(--color-accent);
-  opacity: 0.45;
-  animation: pulse 1.4s ease-in-out infinite;
-}
-
 .heroSkeleton {
   max-width: var(--bleed-max);
   height: var(--hero-height);
@@ -43,12 +37,6 @@
 
 .cardSkeleton {
   height: 400px;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.2;
-  }
 }
 
 @media (max-width: 767px) {
