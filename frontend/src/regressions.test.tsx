@@ -85,6 +85,43 @@ describe('regressions', () => {
     expect(router.state.location.pathname).toBe('/checkout/42')
   })
 
+  it('empties the header cart as soon as payment succeeds, without waiting for a refetch', async () => {
+    // Found on the live site: with ~350 ms of latency the header said "Cart, 2 items" right after paying.
+    const item = {
+      id: 1, offer_id: 11, seller_name: 'NovaKeys', unit_price_cents: 779, quantity: 2, keys: [],
+      product: { slug: 'hades', title: 'Hades', cover_url: 'https://cdn.test/c.jpg', platform: 'steam' as const, region: 'global' as const },
+    }
+    const pending = { ...pendingOrder, total_cents: 1558, items: [item] }
+    const paid: Order = { ...pending, status: 'paid', paid_at: '2026-11-12T10:02:00Z', payment: { card_brand: 'visa', card_last4: '4242' } }
+    const fullCart = {
+      lines: [{ offer_id: 11, quantity: 2, price_cents: 779, added_price_cents: 779, line_total_cents: 1558, stock: 5, available: true, product: item.product, seller: { name: 'NovaKeys', rating: 99.5 } }],
+      item_count: 2,
+      total_cents: 1558,
+    }
+    let isPaid = false
+    fakeApi({
+      ...signedIn,
+      'GET /api/cart': () =>
+        isPaid ? new Promise((resolve) => setTimeout(() => resolve(ok({ lines: [], item_count: 0, total_cents: 0 })), 2000)) : ok(fullCart),
+      'GET /api/orders/42': () => ok(isPaid ? paid : pending),
+      'POST /api/orders/42/pay': () => {
+        isPaid = true
+        return ok(paid)
+      },
+    })
+    renderApp('/checkout/42')
+
+    expect(await screen.findByRole('link', { name: 'Cart, 2 items' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Name on card'), { target: { value: 'Ada Lovelace' } })
+    fireEvent.change(screen.getByLabelText('Card number'), { target: { value: '4242424242424242' } })
+    fireEvent.change(screen.getByLabelText('Expiry (MM/YY)'), { target: { value: '1234' } })
+    fireEvent.change(screen.getByLabelText('CVC'), { target: { value: '123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Pay €15.58' }))
+
+    expect(await screen.findByText('Payment successful. Your keys are ready below.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Cart' })).toBeInTheDocument()
+  })
+
   it('survives a shared Store link whose search text is cut inside an emoji', async () => {
     // 99 letters + an emoji is 101 UTF-16 units; cutting at 100 left half an emoji, and building the
     // pagination links then threw "URI malformed" and took down the page.

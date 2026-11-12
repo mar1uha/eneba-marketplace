@@ -10,6 +10,16 @@ const EMPTY_CART: Cart = { lines: [], item_count: 0, total_cents: 0 }
 
 export const useGuestCartItems = () => useSyncExternalStore(subscribeGuestCart, getGuestCart)
 
+/** The cart without the given offers, totals recomputed: what the server cart becomes after paying for them. */
+export function withoutOffers(cart: Cart, offerIds: number[]): Cart {
+  const lines = cart.lines.filter((l) => !offerIds.includes(l.offer_id))
+  return {
+    lines,
+    item_count: lines.reduce((n, l) => n + l.quantity, 0),
+    total_cents: lines.reduce((n, l) => n + (l.available ? l.line_total_cents : 0), 0),
+  }
+}
+
 const useServerCart = (enabled: boolean) =>
   useQuery({ queryKey: cartQueryKey, queryFn: ({ signal }) => fetchCart(signal), enabled })
 

@@ -1,7 +1,8 @@
 import { vi } from 'vitest'
 
 type Reply = { status: number; body?: unknown }
-type Handler = (body: unknown, query: URLSearchParams) => Reply
+/** A handler may return a promise to simulate a slow server. */
+type Handler = (body: unknown, query: URLSearchParams) => Reply | Promise<Reply>
 
 /**
  * Stubs fetch with a tiny in-memory backend. Routes are keyed "METHOD /path"; handlers get the query string.
@@ -16,7 +17,7 @@ export function fakeApi(routes: Record<string, Reply | Handler>) {
     calls.push({ method, path: url.pathname, query: url.searchParams, body })
     const route = routes[`${method} ${url.pathname}`]
     if (!route) throw new Error(`Unexpected request: ${method} ${url.pathname}`)
-    const reply = typeof route === 'function' ? route(body, url.searchParams) : route
+    const reply = typeof route === 'function' ? await route(body, url.searchParams) : route
     return new Response(reply.status === 204 ? null : JSON.stringify(reply.body ?? {}), {
       status: reply.status,
       headers: { 'Content-Type': 'application/json' },

@@ -10,7 +10,8 @@ import { formatPrice, platformLabels, regionLabels } from '../../lib/format'
 import { splitDuration, useCountdown } from '../../lib/useCountdown'
 import { StatusPage } from '../../pages/StatusPage'
 import { orderQueryKey, ordersQueryKey } from '../account/orders'
-import { cartQueryKey } from '../cart/useCart'
+import type { Cart } from '../../api/cart'
+import { cartQueryKey, withoutOffers } from '../cart/useCart'
 import styles from './Checkout.module.css'
 
 export function CheckoutPage() {
@@ -66,6 +67,8 @@ function Payment({ order, clockOffsetMs, onExpired }: { order: Order; clockOffse
   const pay = useMutation({
     mutationFn: () => payOrder(order.id, card),
     onSuccess: (paid) => {
+      // Update the header at once; the refetch below confirms it.
+      queryClient.setQueryData<Cart>(cartQueryKey, (cart) => cart && withoutOffers(cart, paid.items.map((i) => i.offer_id)))
       void queryClient.invalidateQueries({ queryKey: cartQueryKey })
       void queryClient.invalidateQueries({ queryKey: ordersQueryKey })
       queryClient.setQueryData(orderQueryKey(order.id), paid)

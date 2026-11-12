@@ -4,6 +4,8 @@ A digital-goods marketplace that copies the look and feel of [eneba.com](https:/
 
 The project is built in five parts. Each part starts with scoping questions, gets built, and is tested before the next one begins. The goal is a few features done in depth rather than many features done shallowly. The full conversation with the AI assistant is kept in [`chat_history.md`](chat_history.md).
 
+**Live demo: https://eneba-marketplace-steel.vercel.app** (payments are simulated; use the test card `4242 4242 4242 4242`). The API sleeps when idle on Render's free plan, so the first request after a pause can take up to a minute.
+
 ## Status
 
 | Part | Scope | Status |
@@ -31,12 +33,12 @@ The project is built in five parts. Each part starts with scoping questions, get
 | Auth | Server-side sessions in an HttpOnly cookie; argon2id passwords; Google via OAuth 2.0 + PKCE (`golang.org/x/oauth2`) | Sessions can be revoked instantly (sign out everywhere, password reset) and JavaScript can never read the token. See [Authentication](#authentication). |
 | Images | Steam's public CDN | Real cover art makes the store look real. Images belong to their publishers; this is acceptable for a non-commercial demo only. |
 | Tests | `go test` against a real test database; Vitest + Testing Library | Integration tests hit real Postgres so SQL is tested as it runs in production. Frontend tests render real components against a mocked `fetch`. |
-| Hosting (planned) | Vercel (frontend), Render (API in Docker), Neon (Postgres) | All three have free tiers. Neon's free Postgres does not expire, unlike Render's free Postgres (30 days). Render free services sleep after about 15 minutes idle, so the first request after a pause is slow. |
+| Hosting | Vercel (frontend), Render (API in Docker), Neon (Postgres) | All three have free tiers. Neon's free Postgres does not expire, unlike Render's free Postgres (30 days). Render free services sleep after about 15 minutes idle, so the first request after a pause is slow. |
 
 ## Architecture
 
 ```
-            Development                                  Production (planned)
+            Development                                  Production          
 
   Browser ──► Vite dev server :5173              Browser ──► Vercel (static React build)
                  │ proxies /api/*                               │ rewrites /api/*
@@ -638,7 +640,7 @@ What the tests cover:
 - **Cart, checkout, and payment frontend tests:** product page (editions, offer order, sold-out button, stock-limited adding, Buy now), guest cart priced by the server, merge at log in, quantity stepper, price-change notice, blocked checkout, sold-out-during-checkout refresh, client-side card validation, decline then success, revealed key, expired reservation, order list, and card formatting helpers.
 - **Regression tests for bugs found in review and by fuzzing** (each failed before its fix):
   - Backend (`httpapi/regressions_test.go`): a script sent malformed input to every endpoint and found 500s. A NUL byte in a product URL or search text, invalid UTF-8 in search text, and a huge browser-supplied "price when added" in a guest cart (overflowing the `int` column) each crashed a handler. They now get a 404/400, or the price is ignored.
-  - Frontend (`src/regressions.test.tsx`): release dates showed a day early west of UTC; the card expiry turned "1/30" into "13/0"; a network failure on the order page said "This order does not exist"; a failed cancel was silent; and a shared Store link with an emoji at the 100th character split it in half, which crashed the page with "URI malformed" while building pagination links.
+  - Frontend (`src/regressions.test.tsx`): release dates showed a day early west of UTC; the card expiry turned "1/30" into "13/0"; a network failure on the order page said "This order does not exist"; a failed cancel was silent; and a shared Store link with an emoji at the 100th character split it in half, which crashed the page with "URI malformed" while building pagination links. Found on the live site: the header cart badge kept the old count until a refetch returned (about 350 ms on real latency); the cached cart now drops the paid lines at once. The fake API can answer slowly to reproduce this.
 - **Purchase journey in the browser** (headless Chrome, real backend, 27 checks): search → product → edition switch → guest cart → register → merged cart → checkout → empty form → declined card → paid → hidden keys → reveal (matches the database) → reload → repeated payment request charges nothing → order history → stock went down → expired reservation → cancel → mobile product and cart pages. The run caught a product cover stretched by its height attribute, and two accessibility issues: edition links read as "Europe€8.09", and two offers of the same game in the cart had identical button labels.
 - **Browser end-to-end** (headless Chrome, real backend, 20 checks): the full register → second device → sign out others → change password → header sign-out → forgot password → reset link from the server log → reuse refused → old password rejected flow. It also checks the cookie flags as seen by the browser and the mobile layout. This run caught a sign-out redirect race that jsdom tests could not reproduce.
 
@@ -658,10 +660,17 @@ What the tests cover:
 
 `.env` files are git-ignored. Only the `.env.example` templates are committed.
 
-## Deployment (planned)
+## Deployment
 
-1. **Database:** create a free Neon project and copy its connection string, including `sslmode=require`.
-2. **API:** deploy `backend/` to Render as a Docker web service. Set `DATABASE_URL`, `CORS_ORIGINS` and `APP_BASE_URL` (both the Vercel URL), and optionally the Google variables. Migrations and seed data run on boot; an advisory lock keeps two booting instances from migrating at once.
-3. **Frontend:** deploy `frontend/` to Vercel with two rewrites: `/api/*` to the Render URL (keeps cookies first-party), and everything else to `index.html` (client-side routing).
+| Part | Where | Address |
+| --- | --- | --- |
+| Website | Vercel, project `eneba-marketplace` | https://eneba-marketplace-steel.vercel.app |
+| API | Render web service `eneba-api` (Docker, free plan, Frankfurt) | https://eneba-api-ko2p.onrender.com/api/health |
+| Database | Neon, PostgreSQL 18, `aws-eu-central-1` (Frankfurt, next to the API) | private |
 
-The Dockerfile and hosting config are added in the deployment step.
+- **Database:** a free Neon project. The API uses the *direct* connection string, not the pooled one, because migrations take a session-level advisory lock that a transaction pooler would break. Migrations and seed data ran on the first boot.
+- **API:** [`render.yaml`](render.yaml) describes the service and [`backend/Dockerfile`](backend/Dockerfile) builds a static Go binary on a distroless, non-root image. Render rebuilds on every push to `main` and checks `/api/health`. Environment variables are set in Render, never in the repo: `DATABASE_URL`, `APP_BASE_URL` and `CORS_ORIGINS` (both the Vercel URL), `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET`. Cookies default to `Secure` with the `__Host-` prefix.
+- **Website:** [`frontend/vercel.json`](frontend/vercel.json) proxies `/api/*` to Render, so the browser only talks to the Vercel domain and the session cookie stays first-party, and sends every other path to `index.html` for client-side routing. Deploy with `cd frontend && npx vercel deploy --prod`.
+- **Google sign-in in production:** the OAuth client in Google Cloud Console must list `https://eneba-marketplace-steel.vercel.app/api/auth/google/callback` as an authorized redirect URI. While the consent screen is in "Testing" mode, only listed test users can sign in with Google.
+- **Free-tier behavior:** Render's free service sleeps after about 15 minutes idle and takes up to a minute to wake. If the first request times out, the page shows its error state with a Try again button. Neon's free compute also suspends when idle and wakes in about a second.
+- **Checked after deploying:** the browser suites ran against the live site: the store suite (36 checks) and the purchase journey (27 checks). The purchase run found that the header cart badge lagged about 350 ms behind a payment on real network latency; it is fixed and covered by a regression test.

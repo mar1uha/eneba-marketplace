@@ -493,3 +493,14 @@ if there is any surplus code, fix it (if 200 lines of code could be 50, rewrite 
   - Cancel errors are shown.
   - Store search text is cut by characters, matching the server.
 - After the fixes: all Go packages pass; Vitest 55/55; lint and type-check clean; the fuzz run finds 0 server errors; browser suites 27/27 (purchase journey) and 36/36 (store). Keys used by the browser runs were returned to stock in the local database.
+
+**3. Part 5 committed:** `9f78f98 Add product page, cart, checkout with key reservation, and simulated payment (Part 5)`.
+
+**4. Deployment** (the user chose: I run the CLIs and they approve browser logins; a public GitHub repo; Google sign-in on the live site):
+- **GitHub:** installed the GitHub CLI; the user approved a device-code login. The whole git history was scanned for secrets (none) before creating the public repo https://github.com/mar1uha/eneba-marketplace and pushing.
+- **Neon:** the user approved the CLI login. Created project `eneba-marketplace` (PostgreSQL 18, `aws-eu-central-1`). The connection string went to a scratchpad file and was never printed. Using the direct, not pooled, connection keeps the migrations' advisory lock working. Running the API locally against Neon applied all 10 migrations and the seed, and fuzzy search worked there.
+- **Render:** added `backend/Dockerfile` (static binary, distroless, non-root), `.dockerignore`, and `render.yaml`. The user saved an API key to a file; the service was created through Render's API with the environment variables passed straight from files: free plan, Frankfurt, health check `/api/health`, auto-deploy on push. Live at https://eneba-api-ko2p.onrender.com.
+- **Vercel:** the user approved the CLI login. Project `eneba-marketplace`; `frontend/vercel.json` proxies `/api/*` to Render (first-party cookies) and falls back to `index.html`. Live at **https://eneba-marketplace-steel.vercel.app**. Vercel's local token file and `.vercel` are git-ignored.
+- **Checked live:** health, search, product, and providers (`google: true`) through the site in about 350 ms. The Google start redirect uses `https://eneba-marketplace-steel.vercel.app/api/auth/google/callback`. Browser suites against the live site: store 36/36; purchase journey 26/27.
+- **Bug found live, then fixed test-first:** the header cart badge still said "Cart, 2 items" right after paying until a refetch returned (invisible locally, where the API answers instantly). The fake API can now answer slowly; a regression test reproduced it; the fix removes the paid lines from the cached cart at once. Vitest 56/56.
+- **Left for the user:** add the redirect URI above to the Google OAuth client (and add test users while the consent screen is in Testing mode). Vercel also suggests enabling 2FA.
