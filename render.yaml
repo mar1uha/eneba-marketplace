@@ -1,0 +1,21 @@
+# Render Blueprint for the Go API. Secrets are entered in the Render dashboard (sync: false).
+services:
+  - type: web
+    name: eneba-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL # Neon direct (non-pooled) connection string; migrations use a session advisory lock
+        sync: false
+      - key: APP_BASE_URL # the Vercel URL, e.g. https://eneba-marketplace.vercel.app
+        sync: false
+      - key: CORS_ORIGINS # same as APP_BASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
